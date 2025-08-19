@@ -98,7 +98,7 @@ class Ventana(QWidget):
 
             self.inicializar()
             
-            actualizar_socket(8215)
+            actualizar_socket(8211)
             
             try:
                 from rpi_backlight import Backlight
