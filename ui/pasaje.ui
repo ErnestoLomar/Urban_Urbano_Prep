@@ -1,0 +1,1213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Form</class>
+ <widget class="QWidget" name="Form">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>800</width>
+    <height>480</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>800</width>
+    <height>480</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>800</width>
+    <height>480</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">background-color: #fff</string>
+  </property>
+  <widget class="QLabel" name="label">
+   <property name="geometry">
+    <rect>
+     <x>-70</x>
+     <y>0</y>
+     <width>791</width>
+     <height>461</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/Servicios.jpg</pixmap>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_mayores_edad">
+   <property name="geometry">
+    <rect>
+     <x>439</x>
+     <y>160</y>
+     <width>101</width>
+     <height>91</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/adultos-removebg-preview.png</pixmap>
+   </property>
+   <property name="scaledContents">
+    <bool>true</bool>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_estudiantes">
+   <property name="geometry">
+    <rect>
+     <x>250</x>
+     <y>160</y>
+     <width>101</width>
+     <height>91</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/estudiantes-removebg-preview.png</pixmap>
+   </property>
+   <property name="scaledContents">
+    <bool>true</bool>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_volver">
+   <property name="geometry">
+    <rect>
+     <x>690</x>
+     <y>10</y>
+     <width>101</width>
+     <height>51</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="textFormat">
+    <enum>Qt::AutoText</enum>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/flecha-izquierda.png</pixmap>
+   </property>
+   <property name="scaledContents">
+    <bool>false</bool>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_personas_normales">
+   <property name="geometry">
+    <rect>
+     <x>630</x>
+     <y>160</y>
+     <width>101</width>
+     <height>91</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/normal-removebg-preview.png</pixmap>
+   </property>
+   <property name="scaledContents">
+    <bool>true</bool>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_hacia">
+   <property name="geometry">
+    <rect>
+     <x>30</x>
+     <y>40</y>
+     <width>251</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 20pt &quot;Roboto&quot;;</string>
+   </property>
+   <property name="text">
+    <string>A: Camino 2</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_de">
+   <property name="geometry">
+    <rect>
+     <x>30</x>
+     <y>10</y>
+     <width>251</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 20pt &quot;Roboto&quot;;</string>
+   </property>
+   <property name="text">
+    <string>De: Camino 1</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_ninos">
+   <property name="geometry">
+    <rect>
+     <x>60</x>
+     <y>160</y>
+     <width>101</width>
+     <height>91</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/menores_sinfondo.png</pixmap>
+   </property>
+   <property name="scaledContents">
+    <bool>true</bool>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_ninos_total">
+   <property name="geometry">
+    <rect>
+     <x>60</x>
+     <y>380</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);
+font: 14pt &quot;Roboto&quot;;</string>
+   </property>
+   <property name="text">
+    <string>0</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_ninos_total_precio">
+   <property name="geometry">
+    <rect>
+     <x>30</x>
+     <y>250</y>
+     <width>161</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 14pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>$0</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_personas_total">
+   <property name="geometry">
+    <rect>
+     <x>30</x>
+     <y>80</y>
+     <width>171</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 75 16pt &quot;Arial&quot;;
+color: rgb(150,150, 150);</string>
+   </property>
+   <property name="text">
+    <string>Pasajes: 0</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_total_precio">
+   <property name="geometry">
+    <rect>
+     <x>300</x>
+     <y>80</y>
+     <width>150</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 75 16pt &quot;Arial&quot;;
+color: rgb(150,150, 150);</string>
+   </property>
+   <property name="text">
+    <string>Total: $0</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_estudiantes_total">
+   <property name="geometry">
+    <rect>
+     <x>240</x>
+     <y>380</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 14pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>0</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_estudiantes_total_precio">
+   <property name="geometry">
+    <rect>
+     <x>220</x>
+     <y>250</y>
+     <width>161</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 14pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>$0</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_mayores_total">
+   <property name="geometry">
+    <rect>
+     <x>440</x>
+     <y>380</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);
+font: 14pt &quot;Roboto&quot;;</string>
+   </property>
+   <property name="text">
+    <string>0</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_mayores_total_precio">
+   <property name="geometry">
+    <rect>
+     <x>410</x>
+     <y>250</y>
+     <width>161</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 14pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>$0</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_normales_total">
+   <property name="geometry">
+    <rect>
+     <x>620</x>
+     <y>380</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 14pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>0</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_normales_total_precio">
+   <property name="geometry">
+    <rect>
+     <x>600</x>
+     <y>250</y>
+     <width>161</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 14pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>$0</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_2">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>130</y>
+     <width>180</width>
+     <height>290</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">border-radius: 15px;
+border: 2px solid #ccc;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="btn_pagar">
+   <property name="geometry">
+    <rect>
+     <x>340</x>
+     <y>430</y>
+     <width>111</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QPushButton {
+        background-color: #28a745;  /* Verde tipo éxito */
+        color: white;
+        border: none;
+        border-radius: 12px;
+        padding: 12px 24px;
+        font-size: 16px;
+        font-weight: bold;
+        letter-spacing: 1px;
+    }
+    QPushButton:hover {
+        background-color: #218838;
+    }
+    QPushButton:pressed {
+        background-color: #1e7e34;
+    }
+</string>
+   </property>
+   <property name="text">
+    <string>Cobrar</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_3">
+   <property name="geometry">
+    <rect>
+     <x>34</x>
+     <y>139</y>
+     <width>151</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="layoutDirection">
+    <enum>Qt::LeftToRight</enum>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 16pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>Menor</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="btn_nuevo_menor_efectivo">
+   <property name="geometry">
+    <rect>
+     <x>40</x>
+     <y>280</y>
+     <width>141</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QPushButton {
+        background-color: #0078D7;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+		font: 10pt &quot;Roboto&quot;;
+    }
+    QPushButton:hover {
+        background-color: #005A9E;
+    }
+    QPushButton:pressed {
+        background-color: #003E73;
+    }</string>
+   </property>
+   <property name="text">
+    <string>Efectivo</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="btn_nuevo_menor_tarjeta">
+   <property name="geometry">
+    <rect>
+     <x>40</x>
+     <y>330</y>
+     <width>141</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QPushButton {
+        background-color: #F08020;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+        font-size: 14px;
+    }
+    QPushButton:hover {
+        background-color: #e66f10;
+    }
+    QPushButton:pressed {
+        background-color: #b65816;
+    }</string>
+   </property>
+   <property name="text">
+    <string>Tarjeta</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_4">
+   <property name="geometry">
+    <rect>
+     <x>40</x>
+     <y>380</y>
+     <width>21</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/pago-en-efectivo.png</pixmap>
+   </property>
+   <property name="scaledContents">
+    <bool>false</bool>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_5">
+   <property name="geometry">
+    <rect>
+     <x>120</x>
+     <y>380</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/metodo-de-pago.png</pixmap>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_ninos_total_tarjeta">
+   <property name="geometry">
+    <rect>
+     <x>150</x>
+     <y>380</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 14pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>0</string>
+   </property>
+   <property name="textFormat">
+    <enum>Qt::PlainText</enum>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_6">
+   <property name="geometry">
+    <rect>
+     <x>220</x>
+     <y>140</y>
+     <width>161</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="layoutDirection">
+    <enum>Qt::LeftToRight</enum>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);
+font: 16pt &quot;Roboto&quot;;</string>
+   </property>
+   <property name="text">
+    <string>Estudiante</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_7">
+   <property name="geometry">
+    <rect>
+     <x>300</x>
+     <y>380</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/metodo-de-pago.png</pixmap>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_9">
+   <property name="geometry">
+    <rect>
+     <x>210</x>
+     <y>130</y>
+     <width>180</width>
+     <height>290</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">border-radius: 15px;
+border: 2px solid #ccc;
+background-color: rgb(240,240,240);
+</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="btn_nuevo_estudiante_efectivo">
+   <property name="geometry">
+    <rect>
+     <x>220</x>
+     <y>280</y>
+     <width>151</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QPushButton {
+        background-color: #0078D7;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+		font: 10pt &quot;Roboto&quot;;
+    }
+    QPushButton:hover {
+        background-color: #005A9E;
+    }
+    QPushButton:pressed {
+        background-color: #003E73;
+    }</string>
+   </property>
+   <property name="text">
+    <string>Efectivo</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="btn_nuevo_estudiante_tarjeta">
+   <property name="geometry">
+    <rect>
+     <x>220</x>
+     <y>330</y>
+     <width>151</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QPushButton {
+        background-color: #F08020;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+        font-size: 14px;
+    }
+    QPushButton:hover {
+        background-color: #e66f10;
+    }
+    QPushButton:pressed {
+        background-color: #b65816;
+    }</string>
+   </property>
+   <property name="text">
+    <string>Tarjeta</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_10">
+   <property name="geometry">
+    <rect>
+     <x>220</x>
+     <y>380</y>
+     <width>21</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/pago-en-efectivo.png</pixmap>
+   </property>
+   <property name="scaledContents">
+    <bool>false</bool>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_estudiantes_total_tarjeta">
+   <property name="geometry">
+    <rect>
+     <x>330</x>
+     <y>380</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);
+font: 14pt &quot;Roboto&quot;;</string>
+   </property>
+   <property name="text">
+    <string>0</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_11">
+   <property name="geometry">
+    <rect>
+     <x>490</x>
+     <y>380</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);
+</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/metodo-de-pago.png</pixmap>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_12">
+   <property name="geometry">
+    <rect>
+     <x>410</x>
+     <y>139</y>
+     <width>161</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="layoutDirection">
+    <enum>Qt::LeftToRight</enum>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 16pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>Adulto Mayor</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_13">
+   <property name="geometry">
+    <rect>
+     <x>420</x>
+     <y>380</y>
+     <width>21</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/pago-en-efectivo.png</pixmap>
+   </property>
+   <property name="scaledContents">
+    <bool>false</bool>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="btn_nuevo_adulto_efectivo">
+   <property name="geometry">
+    <rect>
+     <x>420</x>
+     <y>280</y>
+     <width>141</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QPushButton {
+        background-color: #0078D7;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+		font: 10pt &quot;Roboto&quot;;
+    }
+    QPushButton:hover {
+        background-color: #005A9E;
+    }
+    QPushButton:pressed {
+        background-color: #003E73;
+    }</string>
+   </property>
+   <property name="text">
+    <string>Efectivo</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="btn_nuevo_adulto_tarjeta">
+   <property name="geometry">
+    <rect>
+     <x>420</x>
+     <y>330</y>
+     <width>141</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QPushButton {
+        background-color: #F08020;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+        font-size: 14px;
+    }
+    QPushButton:hover {
+        background-color: #e66f10;
+    }
+    QPushButton:pressed {
+        background-color: #b65816;
+    }</string>
+   </property>
+   <property name="text">
+    <string>Tarjeta</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_14">
+   <property name="geometry">
+    <rect>
+     <x>400</x>
+     <y>130</y>
+     <width>180</width>
+     <height>290</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">border-radius: 15px;
+border: 2px solid #ccc;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="btn_nuevo_normal_tarjeta">
+   <property name="geometry">
+    <rect>
+     <x>600</x>
+     <y>331</y>
+     <width>151</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QPushButton {
+        background-color: #F08020;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+        font-size: 14px;
+    }
+    QPushButton:hover {
+        background-color: #e66f10;
+    }
+    QPushButton:pressed {
+        background-color: #b65816;
+    }</string>
+   </property>
+   <property name="text">
+    <string>Tarjeta</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_15">
+   <property name="geometry">
+    <rect>
+     <x>600</x>
+     <y>381</y>
+     <width>21</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/pago-en-efectivo.png</pixmap>
+   </property>
+   <property name="scaledContents">
+    <bool>false</bool>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="btn_nuevo_normal_efectivo">
+   <property name="geometry">
+    <rect>
+     <x>600</x>
+     <y>281</y>
+     <width>151</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QPushButton {
+        background-color: #0078D7;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+		font: 10pt &quot;Roboto&quot;;
+    }
+    QPushButton:hover {
+        background-color: #005A9E;
+    }
+    QPushButton:pressed {
+        background-color: #003E73;
+    }</string>
+   </property>
+   <property name="text">
+    <string>Efectivo</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_16">
+   <property name="geometry">
+    <rect>
+     <x>670</x>
+     <y>381</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/metodo-de-pago.png</pixmap>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_17">
+   <property name="geometry">
+    <rect>
+     <x>590</x>
+     <y>131</y>
+     <width>180</width>
+     <height>290</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">border-radius: 15px;
+border: 2px solid #ccc;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_18">
+   <property name="geometry">
+    <rect>
+     <x>600</x>
+     <y>140</y>
+     <width>161</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="layoutDirection">
+    <enum>Qt::LeftToRight</enum>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 16pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>Normal</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_mayores_total_tarjeta">
+   <property name="geometry">
+    <rect>
+     <x>520</x>
+     <y>380</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 14pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>0</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_normales_total_tarjeta">
+   <property name="geometry">
+    <rect>
+     <x>700</x>
+     <y>380</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 14pt &quot;Roboto&quot;;
+background-color: rgb(240,240,240);</string>
+   </property>
+   <property name="text">
+    <string>0</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_total_precio_efectivo">
+   <property name="geometry">
+    <rect>
+     <x>460</x>
+     <y>80</y>
+     <width>150</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 75 16pt &quot;Arial&quot;;
+color: rgb(150,150, 150);</string>
+   </property>
+   <property name="text">
+    <string>Efectivo: $0</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_total_precio_tarjeta">
+   <property name="geometry">
+    <rect>
+     <x>620</x>
+     <y>80</y>
+     <width>150</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 75 16pt &quot;Arial&quot;;
+color: rgb(150,150, 150);</string>
+   </property>
+   <property name="text">
+    <string>Digital: $0</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_8">
+   <property name="geometry">
+    <rect>
+     <x>530</x>
+     <y>420</y>
+     <width>81</width>
+     <height>61</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_volver2">
+   <property name="geometry">
+    <rect>
+     <x>720</x>
+     <y>20</y>
+     <width>71</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 12pt &quot;Roboto&quot;;</string>
+   </property>
+   <property name="text">
+    <string>Volver</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_precio_normal">
+   <property name="geometry">
+    <rect>
+     <x>300</x>
+     <y>40</y>
+     <width>121</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 18pt &quot;Roboto&quot;;
+color: rgb(150,150, 150);</string>
+   </property>
+   <property name="text">
+    <string>P.N: $10</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_precio_preferente">
+   <property name="geometry">
+    <rect>
+     <x>300</x>
+     <y>10</y>
+     <width>121</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font: 18pt &quot;Roboto&quot;;
+color: rgb(150,150, 150);</string>
+   </property>
+   <property name="text">
+    <string>P.P: $10</string>
+   </property>
+  </widget>
+  <zorder>label</zorder>
+  <zorder>label_volver</zorder>
+  <zorder>label_personas_total</zorder>
+  <zorder>label_total_precio</zorder>
+  <zorder>label_2</zorder>
+  <zorder>label_ninos</zorder>
+  <zorder>label_ninos_total_precio</zorder>
+  <zorder>label_ninos_total</zorder>
+  <zorder>btn_pagar</zorder>
+  <zorder>label_3</zorder>
+  <zorder>btn_nuevo_menor_efectivo</zorder>
+  <zorder>btn_nuevo_menor_tarjeta</zorder>
+  <zorder>label_4</zorder>
+  <zorder>label_5</zorder>
+  <zorder>label_ninos_total_tarjeta</zorder>
+  <zorder>label_9</zorder>
+  <zorder>btn_nuevo_estudiante_efectivo</zorder>
+  <zorder>btn_nuevo_estudiante_tarjeta</zorder>
+  <zorder>label_10</zorder>
+  <zorder>label_estudiantes</zorder>
+  <zorder>label_estudiantes_total_precio</zorder>
+  <zorder>label_estudiantes_total</zorder>
+  <zorder>label_6</zorder>
+  <zorder>label_7</zorder>
+  <zorder>label_estudiantes_total_tarjeta</zorder>
+  <zorder>label_14</zorder>
+  <zorder>btn_nuevo_adulto_tarjeta</zorder>
+  <zorder>label_13</zorder>
+  <zorder>btn_nuevo_adulto_efectivo</zorder>
+  <zorder>label_11</zorder>
+  <zorder>label_12</zorder>
+  <zorder>label_17</zorder>
+  <zorder>label_16</zorder>
+  <zorder>label_18</zorder>
+  <zorder>btn_nuevo_normal_tarjeta</zorder>
+  <zorder>label_15</zorder>
+  <zorder>btn_nuevo_normal_efectivo</zorder>
+  <zorder>label_mayores_edad</zorder>
+  <zorder>label_mayores_total</zorder>
+  <zorder>label_mayores_total_precio</zorder>
+  <zorder>label_mayores_total_tarjeta</zorder>
+  <zorder>label_normales_total</zorder>
+  <zorder>label_personas_normales</zorder>
+  <zorder>label_normales_total_precio</zorder>
+  <zorder>label_normales_total_tarjeta</zorder>
+  <zorder>label_total_precio_efectivo</zorder>
+  <zorder>label_total_precio_tarjeta</zorder>
+  <zorder>label_8</zorder>
+  <zorder>label_volver2</zorder>
+  <zorder>label_hacia</zorder>
+  <zorder>label_de</zorder>
+  <zorder>label_precio_preferente</zorder>
+  <zorder>label_precio_normal</zorder>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
