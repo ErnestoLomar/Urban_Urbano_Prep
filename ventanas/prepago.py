@@ -68,6 +68,10 @@ DETECCION_INTERVALO_S = 0.01
 PN532_INIT_REINTENTOS = 5
 PN532_INIT_INTERVALO_S = 0.1
 
+# Reintentos de interconexión con HCE
+HCE_REINTENTOS = 10
+HCE_REINTENTO_INTERVALO_S = 0.05
+
 # APDU Select AID (HCE App)
 # 00 A4 04 00 Lc <AID...> Le
 # AID: F0 55 72 62 54 00 41  (longitud 0x07)
@@ -85,6 +89,7 @@ RESET = "\x1b[0m"
 class HCEWorker(QThread):
     pago_exitoso = pyqtSignal(str)
     pago_fallido = pyqtSignal(str)
+    actualizar_settings = pyqtSignal(dict)
 
     def __init__(self, total_hce, precio, tipo, id_tarifa, geocerca, servicio, setting, origen=None, destino=None):
         super().__init__()
@@ -246,30 +251,7 @@ class HCEWorker(QThread):
             "no_transaccion": no_transaccion,
             "saldo_posterior": saldo_posterior,
         }
-
-    def _actualizar_totales_settings(self):
-        """Actualiza contadores en QSettings de forma segura."""
-        try:
-            pasajero_digital = f"{self.setting_pasajero}_digital"
-            total_str = self.settings.value(pasajero_digital, "0,0")
-            try:
-                total, subtotal = map(float, str(total_str).split(","))
-            except Exception:
-                total, subtotal = 0.0, 0.0
-
-            total = int(total + 1)
-            subtotal = float(subtotal + self.precio)
-
-            self.settings.setValue(pasajero_digital, f"{total},{subtotal}")
-
-            total_liquidar = float(self.settings.value("total_a_liquidar_digital", "0") or 0)
-            self.settings.setValue("total_a_liquidar_digital", str(total_liquidar + self.precio))
-
-            total_folios = int(self.settings.value("total_de_folios_digital", "0") or 0)
-            self.settings.setValue("total_de_folios_digital", str(total_folios + 1))
-        except Exception as e:
-            logger.error(f"Error actualizando QSettings: {e}")
-
+        
     def run(self):
         
         if not self.running:
@@ -277,6 +259,16 @@ class HCEWorker(QThread):
         
         while self.pagados < self.total_hce and self.running:
             try:
+                
+                # --- Construir y enviar trama de cobro ---
+                fecha = strftime('%d-%m-%Y')
+                hora = strftime("%H:%M:%S")
+                
+                servicio_cfg = self.settings.value('servicio', '') or ''
+                # Asegurar que todos los campos vayan como texto
+                trama_txt = f"{vg.folio_asignacion},{self.precio},{hora},{servicio_cfg},{self.origen},{self.destino}"
+                trama_bytes = trama_txt.encode("utf-8")
+                
                 logger.info("Esperando dispositivo HCE...")
                 
                 if not self._detectar_dispositivo():
@@ -289,21 +281,27 @@ class HCEWorker(QThread):
                     self.pago_fallido.emit("Error en intercambio de datos (SELECT AID)")
                     continue
                 
-                # --- Construir y enviar trama de cobro ---
-                fecha = strftime('%d-%m-%Y')
-                hora = strftime("%H:%M:%S")
-                
-                servicio_cfg = self.settings.value('servicio', '') or ''
-                # Asegurar que todos los campos vayan como texto
-                trama_txt = f"{vg.folio_asignacion},{self.precio},{hora},{servicio_cfg},{self.origen},{self.destino}"
-                trama_bytes = trama_txt.encode("utf-8")
-
                 logger.info(f"Trama a enviar: {trama_txt}")
                 
+                intento = 0
                 ok_tx, back = self._enviar_apdu(trama_bytes)
+                
                 if not ok_tx:
-                    self.pago_fallido.emit("Error al enviar APDU")
-                    continue
+                    
+                    self.pago_fallido.emit("Error al recibir respuesta del celular (TRAMA)")
+                    
+                    while intento <= HCE_REINTENTOS and self.running:
+                        ok_tx, back = self._enviar_apdu(trama_bytes)
+                        if ok_tx:
+                            break
+                        intento += 1
+                        self.pago_fallido.emit("El celular no responde (TRAMA) - intento: " + str(intento) + "/" + str(HCE_REINTENTOS))
+                        logger.info(f"Reintentando envío de trama... intento {intento}/{HCE_REINTENTOS}")
+                        time.sleep(HCE_REINTENTO_INTERVALO_S)
+                
+                    if not ok_tx:
+                        self.pago_fallido.emit("Error al recibir respuesta del celular (TRAMA)")
+                        continue
                 
                 partes = self._parsear_respuesta_celular(back)
                 logger.info(f"Respuesta celular (partes): {partes}")
@@ -341,25 +339,32 @@ class HCEWorker(QThread):
                     self._buzzer_error()
                     time.sleep(1.5)
                     continue
+                
+                actualizar_estado_venta_digital_revisado("OK", folio_venta_digital, vg.folio_asignacion)
+                logger.info("Estado de venta actualizado a OK.")
                     
                 # --- Confirmación a celular ---
-                ok_conf, back_conf = self._enviar_apdu(b"OKDB")
-                conf_txt = (back_conf or b"").decode("utf-8", errors="replace")
-                logger.info(f"Confirmación recibida del celular: {conf_txt}")
+                # ok_conf, back_conf = self._enviar_apdu(b"OKDB")
+                # conf_txt = (back_conf or b"").decode("utf-8", errors="replace")
+                # logger.info(f"Confirmación recibida del celular: {conf_txt}")
                 
-                if ok_conf and conf_txt == "OKDB":
-                    actualizar_estado_venta_digital_revisado("OK", folio_venta_digital, vg.folio_asignacion)
-                    logger.info("Estado de venta actualizado a OK.")
-                else:
-                    actualizar_estado_venta_digital_revisado("ERR", folio_venta_digital, vg.folio_asignacion)
-                    logger.warning("Error al enviar confirmación de venta al celular (estado ERR).")
+                # if ok_conf and conf_txt == "OKDB":
+                #     actualizar_estado_venta_digital_revisado("OK", folio_venta_digital, vg.folio_asignacion)
+                #     logger.info("Estado de venta actualizado a OK.")
+                # else:
+                #     actualizar_estado_venta_digital_revisado("ERR", folio_venta_digital, vg.folio_asignacion)
+                #     logger.warning("Error al enviar confirmación de venta al celular (estado ERR).")
                     
                 # Feedback físico y señales UI
                 self._buzzer_ok()
                 self.pagados += 1
-                self._actualizar_totales_settings()
+                self.actualizar_settings.emit({
+                    "setting_pasajero": self.setting_pasajero,
+                    "precio": self.precio
+                })
 
-                self.pago_exitoso.emit(conf_txt or "OKDB")
+                self.pago_exitoso.emit("OKDB") # self.pago_exitoso.emit(conf_txt or "OKDB")
+                time.sleep(1)
                 logger.info("Venta digital guardada y confirmada.")
                     
             except Exception as e:
@@ -392,6 +397,7 @@ class VentanaPrepago(QMainWindow):
         self.servicio = servicio
         self.origen = origen
         self.destino = destino
+        self.settings = QSettings(SETTINGS_PATH, QSettings.IniFormat)
         
         self.exito_pago = {'hecho': False, 'pagado_efectivo': False}
         self.pagados = 0
@@ -446,7 +452,38 @@ class VentanaPrepago(QMainWindow):
         self.worker = HCEWorker(self.total_hce, self.precio, self.tipo_num, self.id_tarifa, self.geocerca, self.servicio, self.setting, self.origen, self.destino)
         self.worker.pago_exitoso.connect(self.pago_exitoso)
         self.worker.pago_fallido.connect(self.pago_fallido)
+        self.worker.actualizar_settings.connect(self._actualizar_totales_settings)
         self.worker.start()
+        
+    def _actualizar_totales_settings(self, data: dict):
+        """Actualiza contadores en QSettings de forma segura desde datos recibidos por señal."""
+        try:
+            setting_pasajero = data.get("setting_pasajero", "")
+            precio = float(data.get("precio", 0))
+
+            pasajero_digital = f"{setting_pasajero}_digital"
+            total_str = self.settings.value(pasajero_digital, "0,0")
+
+            try:
+                total, subtotal = map(float, str(total_str).split(","))
+            except Exception:
+                total, subtotal = 0.0, 0.0
+
+            total = int(total + 1)
+            subtotal = float(subtotal + precio)
+
+            self.settings.setValue(pasajero_digital, f"{total},{subtotal}")
+
+            total_liquidar = float(self.settings.value("total_a_liquidar_digital", "0") or 0)
+            self.settings.setValue("total_a_liquidar_digital", str(total_liquidar + precio))
+
+            total_folios = int(self.settings.value("total_de_folios_digital", "0") or 0)
+            self.settings.setValue("total_de_folios_digital", str(total_folios + 1))
+
+            self.settings.sync()  # fuerza la escritura inmediata
+        except Exception as e:
+            logger.error(f"Error actualizando QSettings: {e}")
+
 
     def pago_exitoso(self, data):
         self.pagados += 1
