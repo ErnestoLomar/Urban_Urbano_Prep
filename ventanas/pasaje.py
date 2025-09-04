@@ -245,6 +245,13 @@ class VentanaPasaje(QWidget):
             self.calcularTotal()
         except Exception as e:
             logging.info(e)
+            
+    def sonar_zumbador(repeticiones=5, duracion=0.055):
+        for _ in range(repeticiones):
+            GPIO.output(12, True)
+            time.sleep(duracion)
+            GPIO.output(12, False)
+            time.sleep(duracion)
 
     #Función para manejar el evento de darle click al label pagar
     def handle_pagar(self, event):
@@ -287,10 +294,13 @@ class VentanaPasaje(QWidget):
                     total_pasajeros = data.total_pasajeros
                 else:
                     total_pasajeros = pasajeros
+                    
                 for _ in range(total_pasajeros):
                     folio = (obtener_ultimo_folio_de_item_venta() or (None, 0))[1] + 1
                     hora = strftime("%H:%M:%S")
-
+                    
+                    # intentar imprimir el boleto
+                    hecho = False
                     if servicio == "SER":
                         hecho = imprimir_boleto_normal_pasaje(
                             str(folio), fecha, hora, str(self.Unidad),
@@ -302,41 +312,49 @@ class VentanaPasaje(QWidget):
                             tipo, str(data.precio), str(self.ruta), str(self.tramo),
                             self.servicio_o_transbordo
                         )
-                    else:
-                        hecho = False
+                    
+                    # Bloque de inserción
+                    insertado = False
+                    if servicio == "SER":
+                        insertado = insertar_item_venta(
+                            folio, str(self.settings.value('folio_de_viaje')), fecha, hora,
+                            int(self.id_tabla), int(str(self.settings.value('geocerca')).split(",")[0]),
+                            tipo_num, "n", "preferente" if tipo != "NORMAL" else "normal",
+                            tipo.lower(), data.precio
+                        )
+                    elif servicio == "TRA":
+                        insertado = insertar_item_venta(
+                            folio, str(self.settings.value('folio_de_viaje')), fecha, hora,
+                            int(self.id_tabla), int(str(self.settings.value('geocerca')).split(",")[0]),
+                            tipo_num, "t", "preferente" if tipo != "NORMAL" else "normal",
+                            tipo.lower(), data.precio
+                        )
 
+                    # Verificar si se insertó
+                    if not insertado:
+                        logging.error(f"Error al registrar venta en DB (folio {folio})")
+                        self.sonar_zumbador()
+                    
+                    # Actualizamos los contadores en settings.ini
+                    total, subtotal = map(float, self.settings.value(setting_key, "0,0").split(','))
+                    self.settings.setValue(setting_key, f"{int(total+1)},{subtotal+data.precio}")
+                    self.settings.setValue('total_a_liquidar', str(float(self.settings.value('total_a_liquidar')) + data.precio))
+                    self.settings.setValue('total_de_folios', str(int(self.settings.value('total_de_folios')) + 1))
+                    self.settings.setValue('total_a_liquidar_efectivo', str(float(self.settings.value('total_a_liquidar_efectivo')) + data.precio))
+                    self.settings.setValue('total_de_folios_efectivo', str(int(self.settings.value('total_de_folios_efectivo')) + 1))
+                    logging.info(f"Boleto {tipo.lower()} impreso")
                     if hecho:
-                        if servicio == "SER":
-                            insertar_item_venta(
-                                folio, str(self.settings.value('folio_de_viaje')), fecha, hora,
-                                int(self.id_tabla), int(str(self.settings.value('geocerca')).split(",")[0]),
-                                tipo_num, "n", "preferente" if tipo != "NORMAL" else "normal",
-                                tipo.lower(), data.precio
-                            )
-                        elif servicio == "TRA":
-                            insertar_item_venta(
-                                folio, str(self.settings.value('folio_de_viaje')), fecha, hora,
-                                int(self.id_tabla), int(str(self.settings.value('geocerca')).split(",")[0]),
-                                tipo_num, "t", "preferente" if tipo != "NORMAL" else "normal",
-                                tipo.lower(), data.precio
-                            )
-                        total, subtotal = map(float, self.settings.value(setting_key, "0,0").split(','))
-                        self.settings.setValue(setting_key, f"{int(total+1)},{subtotal+data.precio}")
-                        self.settings.setValue('total_a_liquidar', str(float(self.settings.value('total_a_liquidar')) + data.precio))
-                        self.settings.setValue('total_de_folios', str(int(self.settings.value('total_de_folios')) + 1))
-                        self.settings.setValue('total_a_liquidar_efectivo', str(float(self.settings.value('total_a_liquidar_efectivo')) + data.precio))
-                        self.settings.setValue('total_de_folios_efectivo', str(int(self.settings.value('total_de_folios_efectivo')) + 1))
                         logging.info(f"Boleto {tipo.lower()} impreso")
                     else:
                         insertar_estadisticas_boletera(str(self.Unidad), fecha_estadistica, hora_estadistica, "BMI", f"S{tipo[0]}")
                         logging.info("Error al imprimir boleto")
                         self.ve = VentanaEmergente("IMPRESORA", "", 4.5)
                         self.ve.show()
-                        for _ in range(5):
-                            GPIO.output(12, True)
-                            time.sleep(0.055)
-                            GPIO.output(12, False)
-                            time.sleep(0.055)
+                        # for _ in range(5):
+                        #     GPIO.output(12, True)
+                        #     time.sleep(0.055)
+                        #     GPIO.output(12, False)
+                        #     time.sleep(0.055)
 
             servicio = self.servicio_o_transbordo[0]
             

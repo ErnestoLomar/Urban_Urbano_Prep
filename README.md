@@ -4,6 +4,8 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 **Autor: Ernesto Lomar**
 
 Linea cronológica:
+- v3.53:
+  - Se implemento el envío 10 veces de la trama de datos hacia el celular.
 - v3.52:
   - Se implemento todo el sistema de Prepago.
 - v2.51:

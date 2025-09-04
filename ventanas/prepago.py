@@ -267,7 +267,6 @@ class HCEWorker(QThread):
                 servicio_cfg = self.settings.value('servicio', '') or ''
                 # Asegurar que todos los campos vayan como texto
                 trama_txt = f"{vg.folio_asignacion},{self.precio},{hora},{servicio_cfg},{self.origen},{self.destino}"
-                trama_bytes = trama_txt.encode("utf-8")
                 
                 logger.info("Esperando dispositivo HCE...")
                 
@@ -281,27 +280,24 @@ class HCEWorker(QThread):
                     self.pago_fallido.emit("Error en intercambio de datos (SELECT AID)")
                     continue
                 
-                logger.info(f"Trama a enviar: {trama_txt}")
-                
                 intento = 0
-                ok_tx, back = self._enviar_apdu(trama_bytes)
-                
+                ok_tx = False
+                back = b""
+                    
+                while intento < HCE_REINTENTOS and self.running:
+                    trama_bytes = (trama_txt + "," + str(intento)).encode("utf-8")
+                    logger.info(f"Trama a enviar: {trama_bytes}")
+                    ok_tx, back = self._enviar_apdu(trama_bytes)
+                    if ok_tx:
+                        break
+                    self.pago_fallido.emit("El celular no responde (TRAMA) - intento: " + str(intento) + "/" + str(HCE_REINTENTOS))
+                    logger.info(f"Reintentando envío de trama... intento {intento}/{HCE_REINTENTOS}")
+                    intento += 1
+                    time.sleep(HCE_REINTENTO_INTERVALO_S)
+            
                 if not ok_tx:
-                    
                     self.pago_fallido.emit("Error al recibir respuesta del celular (TRAMA)")
-                    
-                    while intento <= HCE_REINTENTOS and self.running:
-                        ok_tx, back = self._enviar_apdu(trama_bytes)
-                        if ok_tx:
-                            break
-                        intento += 1
-                        self.pago_fallido.emit("El celular no responde (TRAMA) - intento: " + str(intento) + "/" + str(HCE_REINTENTOS))
-                        logger.info(f"Reintentando envío de trama... intento {intento}/{HCE_REINTENTOS}")
-                        time.sleep(HCE_REINTENTO_INTERVALO_S)
-                
-                    if not ok_tx:
-                        self.pago_fallido.emit("Error al recibir respuesta del celular (TRAMA)")
-                        continue
+                    continue
                 
                 partes = self._parsear_respuesta_celular(back)
                 logger.info(f"Respuesta celular (partes): {partes}")
