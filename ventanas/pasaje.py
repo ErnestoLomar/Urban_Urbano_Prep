@@ -359,42 +359,53 @@ class VentanaPasaje(QWidget):
             servicio = self.servicio_o_transbordo[0]
             
             if servicio in ['SER', 'TRA']:
-                # Procesar primero todos los pasajeros normales
                 for tipo, datos, tipo_num, setting, precio in pasajeros:
+                    # 1) primero efectivo de este tipo
                     if datos.total_pasajeros > 0:
                         imprimir_y_guardar(tipo, datos, tipo_num, setting, servicio)
-                
-                # Luego procesar los que pagaron con tarjeta
-                for tipo, datos, tipo_num, setting, precio in pasajeros:
+
+                    # 2) luego HCE de este tipo, uno por ventana
                     total_hce = datos.total_pasajeros_tarjeta
-                    if total_hce > 0:
+                    for _ in range(total_hce):
+                        ventana = VentanaPrepago(
+                            tipo=tipo, tipo_num=tipo_num, setting=setting,
+                            total_hce=1, precio=precio, id_tarifa=self.id_tabla,
+                            geocerca=int(str(self.settings.value('geocerca')).split(",")[0]),
+                            servicio=("n" if servicio == "SER" else "t"),
+                            origen=self.origen, destino=self.destino
+                        )
+                        ventana.setGeometry(0, 0, 800, 480)
+                        ventana.setWindowFlags(Qt.FramelessWindowHint)
+
+                        r = ventana.mostrar_y_esperar()
+                        time.sleep(1)
+
+                        if not r['hecho']:
+                            if r['pagado_efectivo']:
+                                imprimir_y_guardar(tipo, datos, tipo_num, setting, servicio, 1)
+                                continue   # siguiente pasajero HCE de este tipo
+                            break           # aborta solo la tanda HCE de este tipo
+
+                        # HCE OK: imprime boleto
                         if servicio == "SER":
-                            ventana = VentanaPrepago(tipo=tipo, tipo_num=tipo_num, setting=setting, total_hce=total_hce, precio=precio, id_tarifa=self.id_tabla, geocerca=int(str(self.settings.value('geocerca')).split(",")[0]), servicio="n", origen=self.origen, destino=self.destino)
-                            ventana.setGeometry(0, 0, 800, 480)
-                            ventana.setWindowFlags(Qt.FramelessWindowHint)
-                            respuesta_ventana_prepago = ventana.mostrar_y_esperar()
-                            print("Exito pago es: ", respuesta_ventana_prepago['hecho'])
-                            if not respuesta_ventana_prepago['hecho']:
-                                if respuesta_ventana_prepago['pagado_efectivo']:
-                                    print("Se pagara ahora con dinero")
-                                    imprimir_y_guardar(tipo, datos, tipo_num, setting, servicio, 1)
-                                else:
-                                    print(f"Error en el cobro de {tipo}. Cancelando procesamiento.")
-                                    break
-                            print(f"Exito en el cobro de {tipo}.")
-                        elif servicio == "TRA":
-                            ventana = VentanaPrepago(tipo=tipo, tipo_num=tipo_num, setting=setting, total_hce=total_hce, precio=precio, id_tarifa=self.id_tabla, geocerca=int(str(self.settings.value('geocerca')).split(",")[0]), servicio="t")
-                            ventana.setGeometry(0, 0, 800, 480)
-                            ventana.setWindowFlags(Qt.FramelessWindowHint)
-                            respuesta_ventana_prepago = ventana.mostrar_y_esperar()
-                            print("Exito pago es: ", respuesta_ventana_prepago['hecho'])
-                            if not respuesta_ventana_prepago['hecho']:
-                                if respuesta_ventana_prepago['pagado_efectivo']:
-                                    imprimir_y_guardar(tipo, datos, tipo_num, setting, servicio, 1)
-                                    print("Se pagara ahora con dinero")
-                                else:
-                                    print(f"Error en el cobro de {tipo}. Cancelando procesamiento.")
-                                    break
+                            hecho = imprimir_boleto_normal_pasaje(
+                                str(r['folio']), r['fecha'], r['hora'], str(self.Unidad),
+                                tipo, str(precio), str(self.ruta), str(self.tramo)
+                            )
+                        else:
+                            hecho = imprimir_boleto_con_qr_pasaje(
+                                str(r['folio']), r['fecha'], r['hora'], str(self.Unidad),
+                                tipo, str(precio), str(self.ruta), str(self.tramo),
+                                self.servicio_o_transbordo
+                            )
+
+                        if not hecho:
+                            insertar_estadisticas_boletera(
+                                str(self.Unidad), fecha_estadistica, hora_estadistica,
+                                "BMI", f"{'S' if servicio=='SER' else 'T'}{tipo[0]}"
+                            )
+                            self.ve = VentanaEmergente("IMPRESORA", "", 4.5)
+                            self.ve.show()
             
             vg.modo_nfcCard = True
 

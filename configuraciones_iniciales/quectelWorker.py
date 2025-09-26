@@ -18,10 +18,10 @@ sys.path.insert(1, '/home/pi/Urban_Urbano/db')
 # Librerías locales
 from asignaciones_queries import seleccionar_auto_asignaciones_antiguas, eliminar_auto_asignaciones_antiguas, seleccionar_fin_de_viaje_antiguos, eliminar_fin_de_viaje_antiguos
 from tickets_usados import seleccionar_tickets_antiguos, eliminar_tickets_antiguos
-from ventas_queries import seleccionar_ventas_antiguas, eliminar_ventas_antiguas
+from ventas_queries import seleccionar_ventas_antiguas, eliminar_ventas_antiguas, seleccionar_ventas_digitales_antiguas, eliminar_ventas_digitales_antiguas
 from queries import insertar_estadisticas_boletera, crear_tablas, obtener_datos_aforo, seleccionar_estadistias_antiguas, eliminar_estadisticas_antiguas, actualizar_socket
 from horariosDB import obtener_estado_de_todas_las_horas_no_hechas, actualizar_estado_hora_check_hecho, actualizar_estado_hora_por_defecto
-import variables_globales as vg
+import variables_globales as vg 
 from eeprom_num_serie import cargar_num_serie
 from FTP import Principal_Modem
 import actualizar_hora
@@ -299,7 +299,29 @@ class QuectelWorker(QObject):
                     print("Error al verificar las ventas: "+str(e))
                         
                 time.sleep(0.10)
-                
+
+                try:
+                    # Procedemos a hacer el chequeo de los registros de ventas digitales en la base de datos
+                    todas_las_ventas_digitales_antiguas = seleccionar_ventas_digitales_antiguas()
+                    if len(todas_las_ventas_digitales_antiguas) > 0:
+                        contador_de_ventas_digitales_eliminadas = 0
+                        for i in range(len(todas_las_ventas_digitales_antiguas)):
+                            lista_fecha_ventas_digital = str(todas_las_ventas_digitales_antiguas[i][1]).split("-")
+                            cadena_fecha_venta_digital = lista_fecha_ventas_digital[2]+lista_fecha_ventas_digital[1]+lista_fecha_ventas_digital[0]
+                            if int(cadena_fecha_venta_digital) <= int(fecha_hace_15_dias):
+                                eliminado_ventas_db = eliminar_ventas_digitales_antiguas(todas_las_ventas_digitales_antiguas[i][0])
+                                if eliminado_ventas_db:
+                                    contador_de_ventas_digitales_eliminadas+=1
+                        if contador_de_ventas_digitales_eliminadas > 0:
+                            print("Ventas digitales verificadas, se eliminaron "+str(contador_de_ventas_digitales_eliminadas)+" registros")
+                            #print("\n")
+                        else:
+                            print(f"No se eliminaron registros de ventas digitales, hay un total de {len(todas_las_ventas_digitales_antiguas)}")
+                            #print("\n")
+                except Exception as e:
+                    print("Error al verificar las ventas digitales: "+str(e))
+                        
+                time.sleep(0.10)
                 
                 try:
                     # Procedemos a hacer el chequeo de los registros de estadisticas en la base de datos

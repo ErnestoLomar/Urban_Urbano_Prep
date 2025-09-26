@@ -107,6 +107,21 @@ class CerrarTurno(QWidget):
             self.label_head.setText(f"{self.idUnidad} {str(self.settings.value('servicio')[6:])}")
             self.label_vuelta.setText(f"Vuelta {str(self.settings.value('vuelta'))}")
             self.label_total_a_liquidar.setText(self.settings.value('total_a_liquidar'))
+
+            try:
+                # Obtenemos el nombre del operador y lo mostramos en la pantalla
+                if len(variables_globales.nombre_de_operador_inicio) > 0:
+                    self.label_operador.setText("Operador: " + variables_globales.nombre_de_operador_inicio)
+                else:
+                    if len(self.settings.value('nombre_de_operador_inicio')) > 0:
+                        self.label_operador.setText("Operador: " + self.settings.value('nombre_de_operador_inicio'))
+                    else:
+                        self.label_operador.setText("Operador: ")
+                        print("No hay nombre de operador")
+            except Exception as e:
+                print("Error al obtener el nombre del operador: "+str(e))
+                logging.info("Error al obtener el nombre del operador: "+str(e))
+
         except Exception as e:
             print(e)
             logging.info(f"Error al cargar los datos: {e}")

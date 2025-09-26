@@ -82,7 +82,7 @@ border: 1px solid #c7c7c7;
     <property name="styleSheet">
      <string notr="true">color:rgb(255, 255, 255);
 background-color:rgb(255, 0, 0);
-font: 87 20pt &quot;Arial Black&quot;;</string>
+font: 75 20pt &quot;Roboto&quot;;</string>
     </property>
     <property name="text">
      <string>TextLabel</string>
@@ -94,15 +94,16 @@ font: 87 20pt &quot;Arial Black&quot;;</string>
    <widget class="QLabel" name="label_vuelta">
     <property name="geometry">
      <rect>
-      <x>100</x>
-      <y>50</y>
-      <width>101</width>
+      <x>10</x>
+      <y>90</y>
+      <width>471</width>
       <height>21</height>
      </rect>
     </property>
     <property name="styleSheet">
      <string notr="true">border: 0;
-font: 15pt &quot;MS Sans Serif&quot;;</string>
+font: 14pt &quot;Roboto&quot;;
+color: rgb(0, 0, 0);</string>
     </property>
     <property name="text">
      <string>Vuelta 1</string>
@@ -111,8 +112,8 @@ font: 15pt &quot;MS Sans Serif&quot;;</string>
    <widget class="QLabel" name="label_estudiantes_5">
     <property name="geometry">
      <rect>
-      <x>0</x>
-      <y>90</y>
+      <x>10</x>
+      <y>130</y>
       <width>311</width>
       <height>31</height>
      </rect>
@@ -137,8 +138,8 @@ font: 16pt &quot;MS Sans Serif&quot;;</string>
    <widget class="QLabel" name="label_total_a_liquidar">
     <property name="geometry">
      <rect>
-      <x>310</x>
-      <y>90</y>
+      <x>320</x>
+      <y>130</y>
       <width>91</width>
       <height>31</height>
      </rect>
@@ -157,7 +158,25 @@ font: 15pt &quot;MS Sans Serif&quot;;</string>
      <string>21.00</string>
     </property>
     <property name="alignment">
-     <set>Qt::AlignRight|Qt::AlignTop|Qt::AlignTrailing</set>
+     <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_operador">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>50</y>
+      <width>471</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">border: 0;
+font: 14pt &quot;Roboto&quot;;
+color: rgb(0, 0, 0);</string>
+    </property>
+    <property name="text">
+     <string>Op: Juan Pérez</string>
     </property>
    </widget>
   </widget>

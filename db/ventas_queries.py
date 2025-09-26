@@ -346,4 +346,28 @@ def eliminar_ventas_antiguas(id):
         print(e)
         return False
 
+def seleccionar_ventas_digitales_antiguas():
+    try:
+        conexion = sqlite3.connect(URI,check_same_thread=False)
+        cursor = conexion.cursor()
+        cursor.execute(f"SELECT venta_digital_id, fecha FROM venta_digital")
+        resultado = cursor.fetchall()
+        conexion.close()
+        return resultado
+    except Exception as e:
+        print(e)
+        return False
+
+def eliminar_ventas_digitales_antiguas(id):
+    try:
+        conexion = sqlite3.connect(URI)
+        cursor = conexion.cursor()
+        cursor.execute(f"DELETE FROM venta_digital WHERE venta_digital_id == {id}")
+        conexion.commit()
+        conexion.close()
+        return True
+    except Exception as e:
+        print(e)
+        return False
+
 #crear_tablas()

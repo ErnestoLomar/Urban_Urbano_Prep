@@ -98,6 +98,20 @@ class Rutas(QWidget):
             self.list_trans2.setColumnCount(2)
             self.list_trans2.setHeaderLabels(["Ruta", "Costo"])
             
+            try:
+                # Obtenemos el nombre del operador y lo mostramos en la pantalla
+                if len(variables_globales.nombre_de_operador_inicio) > 0:
+                    self.label_operador.setText("Operador: " + variables_globales.nombre_de_operador_inicio)
+                else:
+                    if len(self.settings.value('nombre_de_operador_inicio')) > 0:
+                        self.label_operador.setText("Operador: " + self.settings.value('nombre_de_operador_inicio'))
+                    else:
+                        self.label_operador.setText("Operador: ")
+                        print("No hay nombre de operador")
+            except Exception as e:
+                print("Error al obtener el nombre del operador: "+str(e))
+                logging.info("Error al obtener el nombre del operador: "+str(e))
+            
             self.label_retroceder.setEnabled(False)
             self.label_retroceder.hide()
             self.cargar_servicios(obtener_servicio_por_numero_de_servicio_y_origen(int(self.servicio_info[0]), self.de))

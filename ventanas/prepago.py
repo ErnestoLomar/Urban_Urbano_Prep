@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QMainWindow, QMessageBox
-from PyQt5.QtCore import QEventLoop, QTimer, QThread, pyqtSignal, QSettings
+from PyQt5.QtCore import QEventLoop, QTimer, QThread, pyqtSignal, QSettings, QWaitCondition, QMutex
 from PyQt5 import uic
 from PyQt5.QtGui import QMovie
 
@@ -59,18 +59,21 @@ GIF_PAGADO = "/home/pi/Urban_Urbano/Imagenes/pagado.gif"
 # Buzzer (BOARD pin 12)
 GPIO_PIN_BUZZER = 12
 
+# RSTO del PN532 -> GPIO27 (pin físico 13)
+RSTO_PIN = 13
+
 # Tiempo total de espera para detección (segundos)
-DETECCION_TIMEOUT_S = 3
+DETECCION_TIMEOUT_S = 1.5
 # Intervalo entre intentos de detección (segundos)
-DETECCION_INTERVALO_S = 0.01
+DETECCION_INTERVALO_S = 0.005
 
 # Reintentos de inicio PN532
-PN532_INIT_REINTENTOS = 5
-PN532_INIT_INTERVALO_S = 0.1
+PN532_INIT_REINTENTOS = 10
+PN532_INIT_INTERVALO_S = 0.05
 
 # Reintentos de interconexión con HCE
-HCE_REINTENTOS = 10
-HCE_REINTENTO_INTERVALO_S = 0.05
+HCE_REINTENTOS = 5
+HCE_REINTENTO_INTERVALO_S = 0.025
 
 # APDU Select AID (HCE App)
 # 00 A4 04 00 Lc <AID...> Le
@@ -85,11 +88,22 @@ SELECT_AID_APDU = bytearray([
 YELLOW = "\x1b[1;33m"
 RESET = "\x1b[0m"
 
+# GPIO buzzer (no lanzar excepción si falla)
+try:
+    GPIO.setwarnings(False)
+    GPIO.setmode(GPIO.BOARD)
+    GPIO.setup(GPIO_PIN_BUZZER, GPIO.OUT, initial=GPIO.LOW)
+    GPIO.setup(RSTO_PIN, GPIO.OUT, initial=GPIO.HIGH)
+except Exception as e:
+    logger.error(f"No se pudo inicializar el zumbador: {e}")
+
 # === Hilo seguro para HCE ===
 class HCEWorker(QThread):
-    pago_exitoso = pyqtSignal(str)
+    pago_exitoso = pyqtSignal(dict)
     pago_fallido = pyqtSignal(str)
     actualizar_settings = pyqtSignal(dict)
+    error_inicializacion = pyqtSignal(str)
+    wait_for_ok = pyqtSignal()
 
     def __init__(self, total_hce, precio, tipo, id_tarifa, geocerca, servicio, setting, origen=None, destino=None):
         super().__init__()
@@ -104,22 +118,28 @@ class HCEWorker(QThread):
         self.origen = origen
         self.destino = destino
         self.running = True
+        self.contador_sin_dispositivo = 0
+
+        # Variables para sincronización
+        self.mutex = QMutex()
+        self.cond = QWaitCondition()
         
         self.settings = QSettings(SETTINGS_PATH, QSettings.IniFormat)
         
         # Inicializa lector PN532 (SPI)
         self.PN532_SPI = Pn532Spi(Pn532Spi.SS0_GPIO8)
         self.nfc = Pn532(self.PN532_SPI)
-        
-        # GPIO buzzer (no lanzar excepción si falla)
+
+    def pn532_hard_reset(self):
         try:
-            GPIO.setwarnings(False)
-            GPIO.setmode(GPIO.BOARD)
-            GPIO.setup(GPIO_PIN_BUZZER, GPIO.OUT, initial=GPIO.LOW)
+            """Pulso de reset a PN532 por RSTO (activo en bajo)."""
+            print("Hard reset PN532")
+            GPIO.output(RSTPDN_PIN, GPIO.LOW)
+            time.sleep(0.4)   # >=100 ms en bajo
+            GPIO.output(RSTPDN_PIN, GPIO.HIGH)
+            time.sleep(0.6)   # espera a que arranque
         except Exception as e:
-            logger.error(f"No se pudo inicializar el zumbador: {e}")
-        
-        self.iniciar_hce()
+            logger.error(f"Error al resetear el lector NFC: {e}")
         
     # -------------------------
     # Inicialización PN532
@@ -139,17 +159,20 @@ class HCEWorker(QThread):
                         break
                 except Exception as e:
                     logger.warning(f"Intento {intentos + 1}/{PN532_INIT_REINTENTOS} - Error iniciando PN532: {e}")
+                    self.pn532_hard_reset()
 
                 intentos += 1
                 time.sleep(PN532_INIT_INTERVALO_S)
 
             if not versiondata:
-                raise RuntimeError("No se detectó el lector NFC (PN532).")
+                self.pn532_hard_reset()
+                logger.error("El lector NFC de la boletera no responde. Entonces, de momento sólo se pueden aceptar pagos en efectivo.")
+                self.error_inicializacion.emit("El lector NFC de la boletera no responde. Entonces, de momento sólo se pueden aceptar pagos en efectivo.")
+                self.running = False
 
         except Exception as e:
             logger.exception(f"Error fatal al iniciar el lector NFC: {e}")
-            # Emite una falla para que la UI lo muestre y terminamos el hilo
-            self.pago_fallido.emit("Error al iniciar NFC")
+            self.error_inicializacion.emit("No se pudo iniciar el lector NFC")
             self.running = False
             
     # -------------------------
@@ -256,9 +279,21 @@ class HCEWorker(QThread):
         
         if not self.running:
             return
+
+        # Inicializa PN532 ya con señales conectadas y el hilo arrancado
+        self.iniciar_hce()
+        if not self.running:
+            # iniciar_hce() pudo haber puesto running = False y emitido error_inicializacion
+            return
         
         while self.pagados < self.total_hce and self.running:
             try:
+
+                if self.contador_sin_dispositivo >= 15:
+                    self.pago_fallido.emit("Se va a resetear el lector")
+                    self.pn532_hard_reset()
+                    self.contador_sin_dispositivo = 0
+                    continue
                 
                 # --- Construir y enviar trama de cobro ---
                 fecha = strftime('%d-%m-%Y')
@@ -272,6 +307,7 @@ class HCEWorker(QThread):
                 
                 if not self._detectar_dispositivo():
                     self.pago_fallido.emit("No se detectó celular")
+                    self.contador_sin_dispositivo += 1
                     continue
 
                 logger.info("¡Dispositivo detectado!")
@@ -290,7 +326,7 @@ class HCEWorker(QThread):
                     ok_tx, back = self._enviar_apdu(trama_bytes)
                     if ok_tx:
                         break
-                    self.pago_fallido.emit("El celular no responde (TRAMA) - intento: " + str(intento) + "/" + str(HCE_REINTENTOS))
+                    self.pago_fallido.emit("El celular no responde (TRAMA) - intento: " + str(intento) + "/" + str(HCE_REINTENTOS) + " - Respuesta: " + str(back))
                     logger.info(f"Reintentando envío de trama... intento {intento}/{HCE_REINTENTOS}")
                     intento += 1
                     time.sleep(HCE_REINTENTO_INTERVALO_S)
@@ -352,14 +388,22 @@ class HCEWorker(QThread):
                 #     logger.warning("Error al enviar confirmación de venta al celular (estado ERR).")
                     
                 # Feedback físico y señales UI
-                self._buzzer_ok()
+                # self._buzzer_ok()
                 self.pagados += 1
                 self.actualizar_settings.emit({
                     "setting_pasajero": self.setting_pasajero,
                     "precio": self.precio
                 })
 
-                self.pago_exitoso.emit("OKDB") # self.pago_exitoso.emit(conf_txt or "OKDB")
+                #self.pago_exitoso.emit("OKDB") # self.pago_exitoso.emit(conf_txt or "OKDB")
+                self.pago_exitoso.emit({"estado": "OKDB", "folio": folio_venta_digital, "fecha": fecha, "hora": hora})
+                self.wait_for_ok.emit()
+                # Esperar aquí hasta que la UI libere
+                self.mutex.lock()
+                self.cond.wait(self.mutex)  # Bloquea este hilo
+                self.mutex.unlock()
+                logger.info("El usuario dio OK, sigo con el flujo...")
+                print("El usuario dio OK, sigo con el flujo...")
                 time.sleep(1)
                 logger.info("Venta digital guardada y confirmada.")
                     
@@ -395,7 +439,7 @@ class VentanaPrepago(QMainWindow):
         self.destino = destino
         self.settings = QSettings(SETTINGS_PATH, QSettings.IniFormat)
         
-        self.exito_pago = {'hecho': False, 'pagado_efectivo': False}
+        self.exito_pago = {'hecho': False, 'pagado_efectivo': False, 'folio': None, 'fecha': None, 'hora': None}
         self.pagados = 0
 
         uic.loadUi(UI_PATH, self)
@@ -421,9 +465,21 @@ class VentanaPrepago(QMainWindow):
             logger.error(f"No se pudo inicializar el zumbador (UI): {e}")
 
         self.worker = None
+
+    def pn532_hard_reset(self):
+        try:
+            """Pulso de reset a PN532 por RSTO (activo en bajo)."""
+            print("Hard reset PN532")
+            GPIO.output(RSTPDN_PIN, GPIO.LOW)
+            time.sleep(0.4)   # >=100 ms en bajo
+            GPIO.output(RSTPDN_PIN, GPIO.HIGH)
+            time.sleep(0.6)   # espera a que arranque
+        except Exception as e:
+            logger.error(f"Error al resetear el lector NFC: {e}")
         
     def pagar_con_efectivo(self):
-        self.exito_pago = {'hecho': False, 'pagado_efectivo': True}
+        self.exito_pago = {'hecho': False, 'pagado_efectivo': True, 'folio': None, 'fecha': None, 'hora': None}
+        self.pn532_hard_reset()
         self.close()
 
     def mostrar_y_esperar(self):
@@ -449,7 +505,28 @@ class VentanaPrepago(QMainWindow):
         self.worker.pago_exitoso.connect(self.pago_exitoso)
         self.worker.pago_fallido.connect(self.pago_fallido)
         self.worker.actualizar_settings.connect(self._actualizar_totales_settings)
+        self.worker.error_inicializacion.connect(self.error_inicializacion_nfc)
+        self.worker.wait_for_ok.connect(self.mostrar_mensaje_exito_bloqueante)
         self.worker.start()
+        
+    def error_inicializacion_nfc(self, mensaje):
+        logger.warning(f"Error de inicialización: {mensaje}")
+        print("Error de inicialización: "+str(mensaje))
+        self.label_info.setStyleSheet("color: red;")
+        self.label_info.setText(mensaje)
+
+        try:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle("Error NFC")
+            msg.setText(mensaje)
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec_()
+        except Exception as e:
+            logger.debug(f"No se pudo mostrar QMessageBox: {e}")
+
+        # Cierra la ventana tras 2 segundos
+        QTimer.singleShot(1000, self.close)
         
     def _actualizar_totales_settings(self, data: dict):
         """Actualiza contadores en QSettings de forma segura desde datos recibidos por señal."""
@@ -483,7 +560,7 @@ class VentanaPrepago(QMainWindow):
 
     def pago_exitoso(self, data):
         self.pagados += 1
-        logger.info(f"Cobro {self.pagados}/{self.total_hce} exitoso: {data}")
+        logger.info(f"Cobro {self.pagados}/{self.total_hce} exitoso: {data['estado']}")
         self.label_info.setStyleSheet("color: green;")
         self.label_info.setText(f"Pagado {self.pagados}/{self.total_hce}")
 
@@ -493,25 +570,38 @@ class VentanaPrepago(QMainWindow):
         self.label_icon.setMovie(self.movie)
         self.movie.start()
         
-        self.mostrar_mensaje_exito()
+        # self.mostrar_mensaje_exito()
 
         if self.pagados >= self.total_hce:
-            self.exito_pago = {'hecho': True, 'pagado_efectivo': False}
+            self.exito_pago = {'hecho': True, 'pagado_efectivo': False, 'folio': data['folio'], 'fecha': data['fecha'], 'hora': data['hora']}
             QTimer.singleShot(2000, self.close)
         else:
             # Volver a mostrar el gif de "cargando" después de 2 segundos
             QTimer.singleShot(2000, self.restaurar_cargando)
     
-    def mostrar_mensaje_exito(self):
-        try:
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Information)
-            msg.setWindowTitle("Pago Exitoso")
-            msg.setText("El pago se realizó exitosamente.")
-            msg.setStandardButtons(QMessageBox.Ok)
-            msg.exec_()
-        except Exception as e:
-            logger.debug(f"No se pudo mostrar QMessageBox (posible modo sin X11): {e}")
+    # def mostrar_mensaje_exito(self):
+    #     try:
+    #         msg = QMessageBox(self)
+    #         msg.setIcon(QMessageBox.Information)
+    #         msg.setWindowTitle("Pago Exitoso")
+    #         msg.setText("El pago se realizó exitosamente.")
+    #         msg.setStandardButtons(QMessageBox.Ok)
+    #         msg.exec_()
+    #     except Exception as e:
+    #         logger.debug(f"No se pudo mostrar QMessageBox (posible modo sin X11): {e}")
+
+    def mostrar_mensaje_exito_bloqueante(self):
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Information)
+        msg.setWindowTitle("Pago Exitoso")
+        msg.setText("El pago se realizó exitosamente.")
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec_()
+        # Liberar al worker
+        self.worker.mutex.lock()
+        self.worker.cond.wakeAll()
+        self.worker.mutex.unlock()
 
     def restaurar_cargando(self):
         self.label_info.setStyleSheet("color: black;")
@@ -532,9 +622,10 @@ class VentanaPrepago(QMainWindow):
             vg.modo_nfcCard = True
         except Exception:
             pass
-        self.exito_pago = {'hecho': False, 'pagado_efectivo': False}
+        self.exito_pago = {'hecho': False, 'pagado_efectivo': False, 'folio': None, 'fecha': None, 'hora': None}
         if self.worker:
             self.worker.stop()
+        self.pn532_hard_reset()
         self.close()
 
     def closeEvent(self, event):

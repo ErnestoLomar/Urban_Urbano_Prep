@@ -4,6 +4,14 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 **Autor: Ernesto Lomar**
 
 Linea cronológica:
+- v3.54:
+  - Ahora se imprime un boleto para venta digital.
+  - Ahora no se frusta la venta de efectivo y digital cuando la impresión de boleto falla.
+  - Al momento de realizar el cobro de venta digital si no se detecta el pn532 se muestra un mensaje de error y se vuelve a la pantalla de servicios.
+  - Se implemento el reseteo del lector NFC por RSTPDN.
+  - Se eliminan las ventas digitales con mas de 15 dias de antiguedad.
+  - Se mofico la ventana de servicios, corte y cerrar turno.
+  - Ya no es necesario la impresora para vender boletos y cerrar viaje.
 - v3.53:
   - Se implemento el envío 10 veces de la trama de datos hacia el celular.
 - v3.52:
