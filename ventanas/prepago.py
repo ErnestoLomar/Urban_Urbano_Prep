@@ -60,7 +60,7 @@ GIF_PAGADO = "/home/pi/Urban_Urbano/Imagenes/pagado.gif"
 GPIO_PIN_BUZZER = 12
 
 # RSTO del PN532 -> GPIO27 (pin físico 13)
-RSTO_PIN = 13
+RSTPDN_PIN = 13
 
 # Tiempo total de espera para detección (segundos)
 DETECCION_TIMEOUT_S = 1.5
@@ -93,7 +93,7 @@ try:
     GPIO.setwarnings(False)
     GPIO.setmode(GPIO.BOARD)
     GPIO.setup(GPIO_PIN_BUZZER, GPIO.OUT, initial=GPIO.LOW)
-    GPIO.setup(RSTO_PIN, GPIO.OUT, initial=GPIO.HIGH)
+    GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)
 except Exception as e:
     logger.error(f"No se pudo inicializar el zumbador: {e}")
 
@@ -388,7 +388,7 @@ class HCEWorker(QThread):
                 #     logger.warning("Error al enviar confirmación de venta al celular (estado ERR).")
                     
                 # Feedback físico y señales UI
-                # self._buzzer_ok()
+                self._buzzer_ok()
                 self.pagados += 1
                 self.actualizar_settings.emit({
                     "setting_pasajero": self.setting_pasajero,

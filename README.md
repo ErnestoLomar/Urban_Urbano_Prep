@@ -4,6 +4,9 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 **Autor: Ernesto Lomar**
 
 Linea cronológica:
+- v3.55:
+  - Se implemento la venta digital por codigos QR.
+  - Se mejora el .so y el codigo de python de la detección de tarjetas para el problema de RX.
 - v3.54:
   - Ahora se imprime un boleto para venta digital.
   - Ahora no se frusta la venta de efectivo y digital cuando la impresión de boleto falla.
