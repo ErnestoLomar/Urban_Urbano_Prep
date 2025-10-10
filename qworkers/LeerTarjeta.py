@@ -7,7 +7,7 @@
 #
 ##########################################
 
-#Librerías externas
+# Librerías externas
 from PyQt5.QtCore import QObject, pyqtSignal, QSettings
 import time
 import ctypes
@@ -17,17 +17,31 @@ import logging
 from time import strftime
 from datetime import datetime, timedelta
 import subprocess
+import threading
 
-#Librerias propias
+# Librerias propias
 from matrices_tarifarias import obtener_destino_de_servicios_directos, obtener_destino_de_transbordos
 from emergentes import VentanaEmergente
-from ventas_queries import insertar_item_venta, obtener_ultimo_folio_de_item_venta
+from ventas_queries import (
+    insertar_item_venta,
+    obtener_ultimo_folio_de_item_venta,
+    guardar_venta_digital,
+    obtener_ultimo_folio_de_venta_digital,
+)
 from queries import obtener_datos_aforo, insertar_estadisticas_boletera
 from tickets_usados import insertar_ticket_usado, verificar_ticket_completo, verificar_ticket
 import variables_globales as vg
 
+# -------------------- Pines y constantes de NFC --------------------
+# RSTO del PN532 (activo en bajo). Modo BOARD.
+RSTPDN_PIN = 13
+
+# Política de reset
+_NFC_MAX_FALLOS_CONSECUTIVOS = 3
+_NFC_RESET_COOLDOWN_S = 10.0
+
 class LeerTarjetaWorker(QObject):
-    
+
     try:
         finished = pyqtSignal()
         progress = pyqtSignal(str)
@@ -35,23 +49,33 @@ class LeerTarjetaWorker(QObject):
         print(e)
         logging.info(e)
 
+    # Init GPIO básicos
     try:
         GPIO.setmode(GPIO.BOARD)
-        GPIO.setup(12, GPIO.OUT)
+        GPIO.setup(12, GPIO.OUT)  # zumbador
+        GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)  # RST PN532 en alto
     except Exception as e:
-        print("\x1b[1;31;47m"+"No se pudo inicializar el zumbador: "+str(e)+'\033[0;m')
+        print("\x1b[1;31;47m"+"No se pudo inicializar GPIO: "+str(e)+'\033[0;m')
         logging.info(e)
-        
+
     def __init__(self):
         super().__init__()
         self.ultimo_qr = ""
         self.ser = any
+
+        # Estado de control NFC
+        self._nfc_fallos = 0
+        self._nfc_ultimo_reset_ts = 0.0
+
+        # Puerto QR
         try:
-            self.ser = serial.Serial(port='/dev/ttyACM0',baudrate = 115200,timeout=0.5)
+            self.ser = serial.Serial(port='/dev/ttyACM0', baudrate=115200, timeout=0.5)
         except Exception as e:
             print(e)
             logging.info(e)
             self.restablecer_comunicación_QR()
+
+        # Librería NFC
         try:
             self.lib = ctypes.cdll.LoadLibrary('/home/pi/Urban_Urbano/qworkers/libernesto.so')
 
@@ -68,6 +92,7 @@ class LeerTarjetaWorker(QObject):
             print(e)
             logging.info(e)
 
+        # Settings y unidad
         try:
             self.settings = QSettings('/home/pi/Urban_Urbano/ventanas/settings.ini', QSettings.IniFormat)
             self.idUnidad = str(obtener_datos_aforo()[1])
@@ -75,15 +100,60 @@ class LeerTarjetaWorker(QObject):
             print(e)
             logging.info(e)
 
+        # Reset inicial de PN532 para arrancar en estado conocido
+        try:
+            self.pn532_hard_reset()
+        except Exception as e:
+            print("\x1b[1;31;47m"+"Reset inicial PN532 falló: "+str(e)+'\033[0;m')
+            logging.error(f"Reset inicial PN532 falló: {e}")
+
+    # -------------------- Utilitarios NFC --------------------
+    def pn532_hard_reset(self):
+        """Reset físico del PN532; intenta cerrar la lib rápido, pero nunca se cuelga."""
+        try:
+            print("\x1b[1;32m"+"Hard reset PN532"+'\033[0;m')
+
+            # Cerrar la lib en un hilo con timeout corto para no bloquear
+            def _try_close():
+                try:
+                    if hasattr(self, "lib") and self.lib and hasattr(self.lib, "nfc_close_all"):
+                        self.lib.nfc_close_all()
+                except Exception:
+                    pass
+
+            t = threading.Thread(target=_try_close, daemon=True)
+            t.start(); t.join(0.15)  # máx 150 ms
+
+            # Reset físico SIEMPRE
+            GPIO.output(RSTPDN_PIN, GPIO.LOW)
+            time.sleep(0.40)   # >=100 ms en bajo
+            GPIO.output(RSTPDN_PIN, GPIO.HIGH)
+            time.sleep(0.60)   # arranque del chip
+        except Exception as e:
+            print("\x1b[1;31;47m"+"Error al resetear el lector NFC: "+str(e)+'\033[0;m')
+            logging.error(f"Error al resetear el lector NFC: {e}")
+
+    def _maybe_reset_nfc(self):
+        """Resetea PN532 si se acumulan fallos y respetando cooldown."""
+        now = time.monotonic()
+        if self._nfc_fallos >= _NFC_MAX_FALLOS_CONSECUTIVOS and (now - self._nfc_ultimo_reset_ts) >= _NFC_RESET_COOLDOWN_S:
+            self.pn532_hard_reset()
+            self._nfc_ultimo_reset_ts = now
+            self._nfc_fallos = 0  # limpia contador tras reset
+
     def _cstr(self, ptr):
-        #print("ptr: ",ptr)
         if not ptr:
             return ""
         try:
             return ctypes.string_at(ptr).decode("utf-8", "ignore")
         finally:
-            self.lib.free_str(ptr)
-            
+            try:
+                self.lib.free_str(ptr)
+            except Exception:
+                print("\x1b[1;31;47m"+"Error al liberar memoria asignada por la lib"+'\033[0;m')
+                logging.error("Error al liberar memoria asignada por la lib")
+
+    # -------------------- Utilitarios de tiempo --------------------
     def restar_dos_horas(self, hora_1, hora_2):
         try:
             t1 = datetime.strptime(hora_1, '%H:%M:%S')
@@ -91,7 +161,7 @@ class LeerTarjetaWorker(QObject):
             return t1 - t2
         except Exception as e:
             print("recorrido_mapa.py, linea 151: "+str(e))
-            
+
     def sumar_dos_horas(self, hora1, hora2):
         try:
             formato = "%H:%M:%S"
@@ -111,11 +181,13 @@ class LeerTarjetaWorker(QObject):
         except Exception as e:
             print("recorrido_mapa.py, linea 151: "+str(e))
 
+    # -------------------- Loop principal --------------------
     def run(self):
         try:
             next_poll = 0.0
             poll_interval = 0.10  # 100 ms ≈ 10 Hz
             while True:
+                #print("\x1b[1;32m"+"Loop principal"+'\033[0;m')
                 now = time.monotonic()
                 if now < next_poll:
                     time.sleep(0.01)
@@ -123,19 +195,50 @@ class LeerTarjetaWorker(QObject):
                 next_poll = now + poll_interval
 
                 try:
+                    # Atiende reset solicitado por UI externa
+                    if vg.pn532_reset_requested:
+                        self.pn532_hard_reset()
+                        vg.pn532_reset_requested = False
+                        self._nfc_fallos = 0
+
+                    # -------------------- NFC --------------------
                     if vg.modo_nfcCard:
-                        csn = self._cstr(self.lib.ev2IsPresent())
+                        try:
+                            # Importante: NO usar locks aquí para evitar deadlocks
+                            csn = self._cstr(self.lib.ev2IsPresent())
+                        except Exception as e:
+                            print("\x1b[1;31;47m"+"ev2IsPresent error: "+str(e)+'\033[0;m')
+                            logging.info(f"ev2IsPresent error: {e}")
+                            self._nfc_fallos += 1
+                            self._maybe_reset_nfc()
+                            next_poll = max(next_poll, time.monotonic() + 0.12)
+                            continue
+                        
+                        csn = (csn or "").strip()
+                        print("CSN: ", csn)
+
+                        # Lectura incompleta
+                        if "IN" in csn.upper():
+                            logging.info("Lectura NFC incompleta (csn='IN').")
+                            self._nfc_fallos += 1
+                            self._maybe_reset_nfc()
+                            next_poll = max(next_poll, time.monotonic() + 0.12)
+                            continue
 
                         # Backoff si no hay tag o UID no esperado
                         if not csn:
                             next_poll = max(next_poll, time.monotonic() + 0.12)
                             continue
-                        if len(csn) not in (8, 14, 20):  # 4/7/10 bytes UID en hex
+                        if len(csn) not in (8, 14, 20):
                             next_poll = max(next_poll, time.monotonic() + 0.12)
                             continue
-                        if len(csn) != 14:  # si tu app exige 7 bytes UID (14 hex)
+                        if len(csn) != 14:
                             next_poll = max(next_poll, time.monotonic() + 0.12)
                             continue
+
+                        # Limpia fallos ante actividad válida
+                        if self._nfc_fallos:
+                            self._nfc_fallos = 0
 
                         # Fecha y hora de la boletera
                         fecha = strftime('%Y/%m/%d').replace('/', '')[2:]
@@ -144,40 +247,32 @@ class LeerTarjetaWorker(QObject):
                         hora = str(fecha_actual[(int(indice) - 2):(int(indice) + 6)]).replace(":", "")
 
                         try:
+                            # Importante: sin locks en estas llamadas
                             tipo = self._cstr(self.lib.tipoTiscEV2())[0:2]
                             if tipo == "KI":
                                 datos_completos_tarjeta = self._cstr(self.lib.obtenerVigencia())
-                                print("Datos completos de la tarjeta: ", datos_completos_tarjeta)
                                 vigenciaTarjeta = datos_completos_tarjeta[:12]
-                                print("Vigencia completa de la tarjeta: " + vigenciaTarjeta)
+
+                                print("Datos completos de la tarjeta: ", datos_completos_tarjeta)
 
                                 # Validación de vigencia
                                 if len(vigenciaTarjeta) == 12 and int(vigenciaTarjeta[:2]) >= 22:
                                     now_dt = datetime.now()
                                     vigenciaActual = f'{str(now_dt.strftime("%Y-%m-%d %H:%M:%S"))[2:].replace(" ","").replace("-","").replace(":","")}'
-                                    print("Fecha actual: " + vigenciaActual)
-                                    print("Fecha vigencia tarjeta: " + vigenciaTarjeta)
                                     if vigenciaActual <= vigenciaTarjeta:
-                                        print("Tarjeta vigente")
-                                        # NO vuelvas a llamar ev2IsPresent; usa csn ya leído
                                         if len(csn) == 14:
                                             vg.vigencia_de_tarjeta = vigenciaTarjeta
-                                            print("La ventana actual es: ", self.settings.value('ventana_actual'))
                                             if str(self.settings.value('ventana_actual')) not in ("chofer", "corte", "enviar_vuelta", "cerrar_turno"):
                                                 if len(vg.numero_de_operador_inicio) > 0 or len(self.settings.value('numero_de_operador_inicio')) > 0:
                                                     vg.numero_de_operador_final = datos_completos_tarjeta[12:17]
                                                     vg.nombre_de_operador_final = datos_completos_tarjeta[17:41].replace("*", " ").replace(".", " ").replace("-", " ").replace("_", " ")
                                                     self.settings.setValue('numero_de_operador_final', f"{datos_completos_tarjeta[12:17]}")
                                                     self.settings.setValue('nombre_de_operador_final', f"{datos_completos_tarjeta[17:41].replace('*',' ').replace('.',' ').replace('-',' ').replace('_',' ')}")
-                                                    print("Numero de operador de final es: " + vg.numero_de_operador_final)
-                                                    print("El nombre del operador de final es: ", vg.nombre_de_operador_final)
                                                 else:
                                                     vg.numero_de_operador_inicio = datos_completos_tarjeta[12:17]
                                                     vg.nombre_de_operador_inicio = datos_completos_tarjeta[17:41].replace("*", " ").replace(".", " ").replace("-", " ").replace("_", " ")
                                                     self.settings.setValue('numero_de_operador_inicio', f"{datos_completos_tarjeta[12:17]}")
                                                     self.settings.setValue('nombre_de_operador_inicio', f"{datos_completos_tarjeta[17:41].replace('*',' ').replace('.',' ').replace('-',' ').replace('_',' ')}")
-                                                    print("Numero de operador de inicio es: " + vg.numero_de_operador_inicio)
-                                                    print("El nombre del operador de inicio es: ", vg.nombre_de_operador_inicio)
                                             vg.csn_chofer_respaldo = csn
                                             self.progress.emit(csn)
                                             GPIO.output(12, True);  time.sleep(0.1)
@@ -221,15 +316,18 @@ class LeerTarjetaWorker(QObject):
                                 GUI.close()
                         except Exception as e:
                             print("\x1b[1;31;47mNo se pudo leer la tarjeta:", str(e), '\033[0;m')
+                            logging.info(e)
+                            self._nfc_fallos += 1
+                            self._maybe_reset_nfc()
                             continue
-                    #else:
-                        #print("\x1b[1;33m"+"Se esta en modo HCE")
+
+                    # -------------------- QR --------------------
                     if self.ser.isOpen():
                         try:
-                            # Leer QR del puerto
                             try:
                                 qr_bytes = self.ser.readline()
                             except Exception as e:
+                                print("\x1b[1;31;47m"+"Error al leer el QR: "+str(e)+'\033[0;m')
                                 logging.info(e)
                                 self.restablecer_comunicación_QR()
                                 qr_bytes = b""
@@ -238,7 +336,6 @@ class LeerTarjetaWorker(QObject):
                             if not qr_str:
                                 continue  # nada que procesar
 
-                            # Debe existir viaje activo
                             if str(self.settings.value('folio_de_viaje')) == "":
                                 print("No hay ningún viaje activo")
                                 for i in range(5):
@@ -247,7 +344,6 @@ class LeerTarjetaWorker(QObject):
                                 time.sleep(1)
                                 continue
 
-                            # Evitar repetir el último QR
                             if qr_str == getattr(self, "ultimo_qr", ""):
                                 print("El ultimo QR se vuelve a pasar")
                                 GUI = VentanaEmergente("UTILIZADO", ".....")
@@ -259,7 +355,6 @@ class LeerTarjetaWorker(QObject):
                                 GUI.close()
                                 continue
 
-                            # Parseo básico
                             print("El QR es: " + qr_str)
                             qr_list = [p.strip() for p in qr_str.split(",")]
                             print("El tamaño del QR es: " + str(len(qr_list)))
@@ -277,7 +372,7 @@ class LeerTarjetaWorker(QObject):
                                     GUI.close()
                                     continue
 
-                                # Campos: PD,unidad,fecha,hora,id_tarifa,origen,**destino**,tipo_pasajero,servicio,id_monedero,saldo_posterior,precio
+                                # Campos
                                 _, unidad_qr, fecha_qr, hora_qr, id_tarifa, origen, destino, tipo_de_pasajero, servicio_qr, id_monedero, saldo_posterior, precio = qr_list
 
                                 # Validación de fecha
@@ -293,7 +388,7 @@ class LeerTarjetaWorker(QObject):
                                     GUI.close()
                                     continue
 
-                                # Validación de geocerca: origen debe coincidir con la geocerca actual
+                                # Validación de geocerca
                                 en_geocerca = False
                                 try:
                                     geo_actual = str(str(vg.geocerca.split(",")[1]).split("_")[0])
@@ -332,18 +427,17 @@ class LeerTarjetaWorker(QObject):
                                 servicio = servicio_qr
                                 if not servicio:
                                     try:
-                                        # Buscar en servicios directos
                                         for servicio_vg in vg.todos_los_servicios_activos:
                                             if str(destino) in str(servicio_vg[2]):
                                                 servicio = str(servicio_vg[5]) + "-" + str(str(servicio_vg[1]).split("_")[0]) + "-" + str(str(servicio_vg[2]).split("_")[0])
                                                 break
-                                        # Si no se halló, buscar en transbordos
                                         if not servicio:
                                             for transbordo in vg.todos_los_transbordos_activos:
                                                 if str(destino) in str(transbordo[2]):
                                                     servicio = str(transbordo[5]) + "-" + str(str(transbordo[1]).split("_")[0]) + "-" + str(str(transbordo[2]).split("_")[0])
                                                     break
                                     except Exception as e:
+                                        print("\x1b[1;31;47m"+"Error al resolver el servicio: "+str(e)+'\033[0;m')
                                         logging.info(e)
 
                                 usted_se_dirige = str(servicio).split("-")[2] if servicio else ""
@@ -353,9 +447,11 @@ class LeerTarjetaWorker(QObject):
                                     ultimo = obtener_ultimo_folio_de_venta_digital() or (None, 0)
                                     folio_venta_digital = (ultimo[1] if isinstance(ultimo, (list, tuple)) and len(ultimo) > 1 else 0) + 1
                                     logging.info(f"Folio de venta digital asignado: {folio_venta_digital}")
+                                    print("\x1b[1;32m"+"Folio de venta digital asignado: "+str(folio_venta_digital)+'\033[0;m')
                                 except Exception as e:
                                     logging.info(e)
                                     folio_venta_digital = 1
+                                    print("\x1b[1;32m"+"Folio de venta digital asignado: "+str(folio_venta_digital)+'\033[0;m')
 
                                 try:
                                     folio_asignacion = str(self.settings.value('folio_de_viaje'))
@@ -377,19 +473,21 @@ class LeerTarjetaWorker(QObject):
                                     )
                                 except Exception as e:
                                     logging.info(e)
+                                    print("\x1b[1;31;47m"+"Error al guardar la venta digital: "+str(e)+'\033[0;m')
                                     venta_guardada = None
 
                                 if venta_guardada:
-                                    # Marcar como usado, actualizar estado y notificar
                                     try:
                                         insertar_ticket_usado(qr_str)
                                     except Exception as e:
                                         logging.info(e)
+                                        print("\x1b[1;31;47m"+"Error al marcar como usado el QR: "+str(e)+'\033[0;m')
                                     try:
                                         self.ultimo_qr = qr_str
                                         self.settings.setValue('total_de_folios', f"{int(self.settings.value('total_de_folios')) + 1}")
                                     except Exception as e:
                                         logging.info(e)
+                                        print("\x1b[1;31;47m"+"Error al actualizar el total de folios: "+str(e)+'\033[0;m')
 
                                     GUI = VentanaEmergente("ACEPTADO", usted_se_dirige if usted_se_dirige else "No encontrado")
                                     GUI.show()
@@ -453,10 +551,6 @@ class LeerTarjetaWorker(QObject):
                                 id_tipo_de_pasajero, p_n = 4, "preferente"
                             else:
                                 id_tipo_de_pasajero = 2
-
-                            print("Tipo de pasajero: ", tipo_de_pasajero)
-                            print("Id tipo de pasajero: ", id_tipo_de_pasajero)
-                            print("P/N: ", p_n)
 
                             # Geocerca
                             en_geocerca = False
@@ -546,7 +640,6 @@ class LeerTarjetaWorker(QObject):
                                 logging.info("Tickets impresos correctamente, pero no se encontró el destino.")
 
                             if hecho:
-                                # Persistencia
                                 insertar_item_venta(
                                     ultimo_folio_de_venta,
                                     str(self.settings.value('folio_de_viaje')),
@@ -560,7 +653,6 @@ class LeerTarjetaWorker(QObject):
                                     tipo_de_pasajero,
                                     0
                                 )
-                                print("Venta de servicio directo insertada correctamente." if doble_tarnsbordo_o_no == "st" else "Venta de transbordo insertada correctamente.")
 
                                 self.ultimo_qr = qr_str
                                 self.settings.setValue('total_de_folios', f"{int(self.settings.value('total_de_folios')) + 1}")
@@ -590,6 +682,7 @@ class LeerTarjetaWorker(QObject):
             print(e)
             logging.info(e)
 
+    # -------------------- QR: restablecer puerto --------------------
     def restablecer_comunicación_QR(self):
         try:
             time.sleep(1)
@@ -604,7 +697,7 @@ class LeerTarjetaWorker(QObject):
                     try:
                         print("\x1b[1;33m"+"Intentando abrir puerto ttyACM0 del QR")
                         time.sleep(5)
-                        self.ser = serial.Serial(port='/dev/ttyACM0',baudrate = 115200,timeout=1)
+                        self.ser = serial.Serial(port='/dev/ttyACM0', baudrate=115200, timeout=1)
                         print("\x1b[1;32m"+"Conexión del puerto ttyACM0 del QR restablecida")
                     except:
                         pass

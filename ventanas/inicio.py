@@ -479,9 +479,36 @@ class Ventana(QWidget):
         try:
             self.label_font.mousePressEvent = self.handle_ok
             self.label_off.mousePressEvent = self.apagar_sistema
+            self.reset_nfc.mousePressEvent = self.pn532_hard_reset
         except Exception as e:
             logging.info("Error al inicializar: " + str(e))
             print("Error al inicializar: " + str(e))
+
+    def pn532_hard_reset(self, event):
+        try:
+            import RPi.GPIO as GPIO, time
+            RSTPDN_PIN = 13
+            # Asegura GPIO inicializado
+            try:
+                if GPIO.getmode() is None:
+                    GPIO.setwarnings(False)
+                    GPIO.setmode(GPIO.BOARD)
+                GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)
+            except Exception:
+                pass
+
+            print("Hard reset PN532 (botón)")
+            GPIO.output(RSTPDN_PIN, GPIO.LOW);  time.sleep(0.40)
+            GPIO.output(RSTPDN_PIN, GPIO.HIGH); time.sleep(0.60)
+            # (opcional) también levanta la bandera para que el worker se re-prepare
+            try:
+                import variables_globales as vg
+                vg.pn532_reset_requested = True
+            except Exception:
+                pass
+        except Exception as e:
+            print("Error al resetear el lector NFC: " + str(e))
+            logging.error(f"Error al resetear el lector NFC: {e}")
 
     #Método para manejar el evento click del label ok
     def handle_ok(self, event):

@@ -34,19 +34,10 @@ _fmt = logging.Formatter(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-# Handler a archivo
-fh = logging.FileHandler(LOG_FILE)
-fh.setLevel(logging.DEBUG)
-fh.setFormatter(_fmt)
-# Handler a consola
-ch = logging.StreamHandler(sys.stdout)
-ch.setLevel(logging.INFO)
-ch.setFormatter(_fmt)
-
-# Evitar handlers duplicados si se recarga el módulo
+fh = logging.FileHandler(LOG_FILE); fh.setLevel(logging.DEBUG); fh.setFormatter(_fmt)
+ch = logging.StreamHandler(sys.stdout); ch.setLevel(logging.INFO); ch.setFormatter(_fmt)
 if not logger.handlers:
-    logger.addHandler(fh)
-    logger.addHandler(ch)
+    logger.addHandler(fh); logger.addHandler(ch)
     
 # =========================
 # Constantes útiles
@@ -64,7 +55,6 @@ RSTPDN_PIN = 13
 
 # Tiempo total de espera para detección (segundos)
 DETECCION_TIMEOUT_S = 1.5
-# Intervalo entre intentos de detección (segundos)
 DETECCION_INTERVALO_S = 0.005
 
 # Reintentos de inicio PN532
@@ -76,19 +66,13 @@ HCE_REINTENTOS = 5
 HCE_REINTENTO_INTERVALO_S = 0.025
 
 # APDU Select AID (HCE App)
-# 00 A4 04 00 Lc <AID...> Le
-# AID: F0 55 72 62 54 00 41  (longitud 0x07)
 SELECT_AID_APDU = bytearray([
     0x00, 0xA4, 0x04, 0x00,
     0x07, 0xF0, 0x55, 0x72, 0x62, 0x54, 0x00, 0x41,
     0x00
 ])
 
-# ANSI colores (solo para consola; logging ya incluye niveles)
-YELLOW = "\x1b[1;33m"
-RESET = "\x1b[0m"
-
-# GPIO buzzer (no lanzar excepción si falla)
+# GPIO buzzer
 try:
     GPIO.setwarnings(False)
     GPIO.setmode(GPIO.BOARD)
@@ -120,24 +104,21 @@ class HCEWorker(QThread):
         self.running = True
         self.contador_sin_dispositivo = 0
 
-        # Variables para sincronización
         self.mutex = QMutex()
         self.cond = QWaitCondition()
-        
         self.settings = QSettings(SETTINGS_PATH, QSettings.IniFormat)
-        
-        # Inicializa lector PN532 (SPI)
+
         self.PN532_SPI = Pn532Spi(Pn532Spi.SS0_GPIO8)
         self.nfc = Pn532(self.PN532_SPI)
 
     def pn532_hard_reset(self):
         try:
-            """Pulso de reset a PN532 por RSTO (activo en bajo)."""
             print("Hard reset PN532")
-            GPIO.output(RSTPDN_PIN, GPIO.LOW)
-            time.sleep(0.4)   # >=100 ms en bajo
-            GPIO.output(RSTPDN_PIN, GPIO.HIGH)
-            time.sleep(0.6)   # espera a que arranque
+            with vg.pn532_lock:
+                GPIO.output(RSTPDN_PIN, GPIO.LOW)
+                time.sleep(0.4)
+                GPIO.output(RSTPDN_PIN, GPIO.HIGH)
+                time.sleep(0.6)
         except Exception as e:
             logger.error(f"Error al resetear el lector NFC: {e}")
         
@@ -146,14 +127,21 @@ class HCEWorker(QThread):
     # -------------------------
     def iniciar_hce(self):
         try:
+            # Toma control exclusivo del PN532
+            if not vg.pn532_acquire("HCE", timeout=3.0):
+                self.error_inicializacion.emit("PN532 ocupado. Intente de nuevo.")
+                self.running = False
+                return
+
             intentos = 0
             versiondata = None
             while intentos < PN532_INIT_REINTENTOS and self.running:
                 try:
-                    self.nfc.begin()
-                    versiondata = self.nfc.getFirmwareVersion()
-                    logger.info(f"Firmware PN532: {versiondata}")
-                    self.nfc.SAMConfig()
+                    with vg.pn532_lock:
+                        self.nfc.begin()
+                        versiondata = self.nfc.getFirmwareVersion()
+                        logger.info(f"Firmware PN532: {versiondata}")
+                        self.nfc.SAMConfig()
                     if versiondata:
                         logger.info("PN532 inicializado correctamente.")
                         break
@@ -166,8 +154,7 @@ class HCEWorker(QThread):
 
             if not versiondata:
                 self.pn532_hard_reset()
-                logger.error("El lector NFC de la boletera no responde. Entonces, de momento sólo se pueden aceptar pagos en efectivo.")
-                self.error_inicializacion.emit("El lector NFC de la boletera no responde. Entonces, de momento sólo se pueden aceptar pagos en efectivo.")
+                self.error_inicializacion.emit("El lector NFC no responde. Acepte efectivo.")
                 self.running = False
 
         except Exception as e:
@@ -197,9 +184,10 @@ class HCEWorker(QThread):
             logger.debug(f"Buzzer ERR error: {e}")
             
     def _enviar_apdu(self, data_bytes):
-        """Envía un APDU (bytearray/bytes) y devuelve (success, respuesta_bytes_o_b'' )."""
+        """Envía un APDU y devuelve (success, respuesta_bytes_o_b'')."""
         try:
-            success, response = self.nfc.inDataExchange(bytearray(data_bytes))
+            with vg.pn532_lock:
+                success, response = self.nfc.inDataExchange(bytearray(data_bytes))
             if response is None:
                 response = b""
             return success, response
@@ -208,66 +196,49 @@ class HCEWorker(QThread):
             return False, b""
         
     def _detectar_dispositivo(self, timeout_s=DETECCION_TIMEOUT_S, intervalo_s=DETECCION_INTERVALO_S):
-        """Intenta detectar un dispositivo HCE hasta agotar el timeout."""
         inicio = time.time()
         while self.running and (time.time() - inicio) < timeout_s:
             try:
-                if self.nfc.inListPassiveTarget():
-                    return True
+                with vg.pn532_lock:
+                    if self.nfc.inListPassiveTarget():
+                        return True
             except Exception as e:
                 logger.debug(f"inListPassiveTarget error: {e}")
             time.sleep(intervalo_s)
         return False
 
     def _seleccionar_aid(self):
-        """Envía APDU SELECT AID. Éxito solo si respuesta == 0x9000."""
         success, response = self._enviar_apdu(SELECT_AID_APDU)
         hex_resp = binascii.hexlify(response).decode("utf-8") if response else ""
         logger.info(f"Respuesta SELECT AID (hex): {hex_resp}")
         return success and hex_resp == "9000"
 
     def _parsear_respuesta_celular(self, back_bytes):
-        """
-        Intenta decodificar la respuesta del celular.
-        Devuelve lista de campos o [] si no válido.
-        """
         if not back_bytes:
             return []
-
         try:
             texto = back_bytes.decode("utf-8", errors="replace").strip()
         except Exception:
-            # Fallback duro
             try:
                 texto = back_bytes.decode("latin-1", errors="replace").strip()
             except Exception:
                 return []
-
-        # Asegurar que no tenga basura binaria
         partes = [p.strip() for p in texto.split(",")]
         return partes
 
     def _validar_trama_ct(self, partes):
-        """
-        Valida que sea: CT,<OK/ERR>,<id_monedero>,<no_transaccion>,<saldo_posterior>
-        Regresa dict con datos o None si inválida.
-        """
         if len(partes) < 5 or partes[0] != "CT":
             return None
-
-        # partes[1] puede ser OK o ERR (se registra igual; ERR lo reportamos en logs)
         try:
             id_monedero = int(partes[2])
             no_transaccion = int(partes[3])
             saldo_posterior = float(partes[4])
         except Exception:
             return None
-
         if not vg.folio_asignacion or id_monedero <= 0 or no_transaccion <= 0:
             return None
         if self.precio <= 0:
             return None
-
         return {
             "estado": partes[1],
             "id_monedero": id_monedero,
@@ -276,151 +247,132 @@ class HCEWorker(QThread):
         }
         
     def run(self):
-        
         if not self.running:
             return
 
-        # Inicializa PN532 ya con señales conectadas y el hilo arrancado
         self.iniciar_hce()
         if not self.running:
-            # iniciar_hce() pudo haber puesto running = False y emitido error_inicializacion
             return
-        
-        while self.pagados < self.total_hce and self.running:
-            try:
 
-                if self.contador_sin_dispositivo >= 15:
-                    self.pago_fallido.emit("Se va a resetear el lector")
-                    self.pn532_hard_reset()
-                    self.contador_sin_dispositivo = 0
-                    continue
-                
-                # --- Construir y enviar trama de cobro ---
-                fecha = strftime('%d-%m-%Y')
-                hora = strftime("%H:%M:%S")
-                
-                servicio_cfg = self.settings.value('servicio', '') or ''
-                # Asegurar que todos los campos vayan como texto
-                trama_txt = f"{vg.folio_asignacion},{self.precio},{hora},{servicio_cfg},{self.origen},{self.destino}"
-                
-                logger.info("Esperando dispositivo HCE...")
-                
-                if not self._detectar_dispositivo():
-                    self.pago_fallido.emit("No se detectó celular")
-                    self.contador_sin_dispositivo += 1
-                    continue
+        try:
+            while self.pagados < self.total_hce and self.running:
+                try:
+                    if self.contador_sin_dispositivo >= 15:
+                        self.pago_fallido.emit("Se va a resetear el lector")
+                        self.pn532_hard_reset()
+                        self.contador_sin_dispositivo = 0
+                        continue
+                    
+                    fecha = strftime('%d-%m-%Y')
+                    hora = strftime("%H:%M:%S")
+                    servicio_cfg = self.settings.value('servicio', '') or ''
+                    trama_txt = f"{vg.folio_asignacion},{self.precio},{hora},{servicio_cfg},{self.origen},{self.destino}"
+                    
+                    logger.info("Esperando dispositivo HCE...")
+                    if not self._detectar_dispositivo():
+                        self.pago_fallido.emit("No se detectó celular")
+                        self.contador_sin_dispositivo += 1
+                        continue
 
-                logger.info("¡Dispositivo detectado!")
-                
-                if not self._seleccionar_aid():
-                    self.pago_fallido.emit("Error en intercambio de datos (SELECT AID)")
-                    continue
-                
-                intento = 0
-                ok_tx = False
-                back = b""
+                    logger.info("Dispositivo detectado")
+                    if not self._seleccionar_aid():
+                        self.pago_fallido.emit("Error en intercambio de datos (SELECT AID)")
+                        continue
                     
-                while intento < HCE_REINTENTOS and self.running:
-                    trama_bytes = (trama_txt + "," + str(intento)).encode("utf-8")
-                    logger.info(f"Trama a enviar: {trama_bytes}")
-                    ok_tx, back = self._enviar_apdu(trama_bytes)
-                    if ok_tx:
-                        break
-                    self.pago_fallido.emit("El celular no responde (TRAMA) - intento: " + str(intento) + "/" + str(HCE_REINTENTOS) + " - Respuesta: " + str(back))
-                    logger.info(f"Reintentando envío de trama... intento {intento}/{HCE_REINTENTOS}")
-                    intento += 1
-                    time.sleep(HCE_REINTENTO_INTERVALO_S)
-            
-                if not ok_tx:
-                    self.pago_fallido.emit("Error al recibir respuesta del celular (TRAMA)")
-                    continue
+                    intento = 0
+                    ok_tx = False
+                    back = b""
+                    while intento < HCE_REINTENTOS and self.running:
+                        trama_bytes = (trama_txt + "," + str(intento)).encode("utf-8")
+                        logger.info(f"Trama a enviar: {trama_bytes}")
+                        ok_tx, back = self._enviar_apdu(trama_bytes)
+                        if ok_tx:
+                            break
+                        self.pago_fallido.emit(
+                            "El celular no responde (TRAMA) - intento: "
+                            + str(intento) + "/" + str(HCE_REINTENTOS)
+                            + " - Respuesta: " + str(back)
+                        )
+                        logger.info(f"Reintentando envío de trama... intento {intento}/{HCE_REINTENTOS}")
+                        intento += 1
+                        time.sleep(HCE_REINTENTO_INTERVALO_S)
                 
-                partes = self._parsear_respuesta_celular(back)
-                logger.info(f"Respuesta celular (partes): {partes}")
-                
-                datos = self._validar_trama_ct(partes)
-                if not datos:
-                    self.pago_fallido.emit("Respuesta inválida del celular")
-                    continue
+                    if not ok_tx:
+                        self.pago_fallido.emit("Error al recibir respuesta del celular (TRAMA)")
+                        continue
+                    
+                    partes = self._parsear_respuesta_celular(back)
+                    logger.info(f"Respuesta celular (partes): {partes}")
+                    datos = self._validar_trama_ct(partes)
+                    if not datos:
+                        self.pago_fallido.emit("Respuesta inválida del celular")
+                        continue
 
-                if datos["estado"] == "ERR":
-                    logger.warning("Celular reporta ERR en la respuesta CT.")
+                    if datos["estado"] == "ERR":
+                        logger.warning("Celular reporta ERR en la respuesta CT.")
+                        
+                    ultimo = obtener_ultimo_folio_de_venta_digital() or (None, 0)
+                    folio_venta_digital = (ultimo[1] if isinstance(ultimo, (list, tuple)) and len(ultimo) > 1 else 0) + 1
+                    logger.info(f"Folio de venta digital asignado: {folio_venta_digital}")
                     
-                # --- Folio y guardado en DB ---
-                ultimo = obtener_ultimo_folio_de_venta_digital() or (None, 0)
-                folio_venta_digital = (ultimo[1] if isinstance(ultimo, (list, tuple)) and len(ultimo) > 1 else 0) + 1
-                logger.info(f"Folio de venta digital asignado: {folio_venta_digital}")
-                
-                venta_guardada = guardar_venta_digital(
-                    folio_venta_digital,
-                    vg.folio_asignacion,
-                    fecha,
-                    hora,
-                    self.id_tarifa,
-                    self.geocerca,
-                    self.tipo_pasajero,
-                    self.servicio,
-                    "f",
-                    datos["id_monedero"],
-                    datos["saldo_posterior"],
-                    self.precio
-                )
-                
-                if not venta_guardada:
-                    logger.error("Error al guardar venta digital en base de datos.")
-                    self._buzzer_error()
-                    time.sleep(1.5)
-                    continue
-                
-                actualizar_estado_venta_digital_revisado("OK", folio_venta_digital, vg.folio_asignacion)
-                logger.info("Estado de venta actualizado a OK.")
+                    venta_guardada = guardar_venta_digital(
+                        folio_venta_digital,
+                        vg.folio_asignacion,
+                        fecha,
+                        hora,
+                        self.id_tarifa,
+                        self.geocerca,
+                        self.tipo_pasajero,
+                        self.servicio,
+                        "f",
+                        datos["id_monedero"],
+                        datos["saldo_posterior"],
+                        self.precio
+                    )
                     
-                # --- Confirmación a celular ---
-                # ok_conf, back_conf = self._enviar_apdu(b"OKDB")
-                # conf_txt = (back_conf or b"").decode("utf-8", errors="replace")
-                # logger.info(f"Confirmación recibida del celular: {conf_txt}")
-                
-                # if ok_conf and conf_txt == "OKDB":
-                #     actualizar_estado_venta_digital_revisado("OK", folio_venta_digital, vg.folio_asignacion)
-                #     logger.info("Estado de venta actualizado a OK.")
-                # else:
-                #     actualizar_estado_venta_digital_revisado("ERR", folio_venta_digital, vg.folio_asignacion)
-                #     logger.warning("Error al enviar confirmación de venta al celular (estado ERR).")
+                    if not venta_guardada:
+                        logger.error("Error al guardar venta digital en base de datos.")
+                        self._buzzer_error()
+                        time.sleep(1.5)
+                        continue
                     
-                # Feedback físico y señales UI
-                self._buzzer_ok()
-                self.pagados += 1
-                self.actualizar_settings.emit({
-                    "setting_pasajero": self.setting_pasajero,
-                    "precio": self.precio
-                })
+                    actualizar_estado_venta_digital_revisado("OK", folio_venta_digital, vg.folio_asignacion)
+                    logger.info("Estado de venta actualizado a OK.")
+                        
+                    self._buzzer_ok()
+                    self.pagados += 1
+                    self.actualizar_settings.emit({
+                        "setting_pasajero": self.setting_pasajero,
+                        "precio": self.precio
+                    })
 
-                #self.pago_exitoso.emit("OKDB") # self.pago_exitoso.emit(conf_txt or "OKDB")
-                self.pago_exitoso.emit({"estado": "OKDB", "folio": folio_venta_digital, "fecha": fecha, "hora": hora})
-                self.wait_for_ok.emit()
-                # Esperar aquí hasta que la UI libere
-                self.mutex.lock()
-                self.cond.wait(self.mutex)  # Bloquea este hilo
-                self.mutex.unlock()
-                logger.info("El usuario dio OK, sigo con el flujo...")
-                print("El usuario dio OK, sigo con el flujo...")
-                time.sleep(1)
-                logger.info("Venta digital guardada y confirmada.")
-                    
-            except Exception as e:
-                logger.exception(f"Excepción en ciclo de cobro: {e}")
-                self.pago_fallido.emit(str(e))
-                break
-            
-        logger.info("HCEWorker: fin del hilo run().")
+                    self.pago_exitoso.emit({"estado": "OKDB", "folio": folio_venta_digital, "fecha": fecha, "hora": hora})
+                    self.wait_for_ok.emit()
+
+                    self.mutex.lock()
+                    self.cond.wait(self.mutex)
+                    self.mutex.unlock()
+                    logger.info("El usuario dio OK, sigo con el flujo...")
+                    time.sleep(1)
+                    logger.info("Venta digital guardada y confirmada.")
+                        
+                except Exception as e:
+                    logger.exception(f"Excepción en ciclo de cobro: {e}")
+                    self.pago_fallido.emit(str(e))
+                    break
+        finally:
+            vg.pn532_release()
+            vg.modo_nfcCard = True
+            logger.info("HCEWorker: fin del hilo run().")
 
     def stop(self):
         self.running = False
         try:
             self.quit()
             self.wait(1500)
-        except Exception as e:
-            logger.debug(f"Stop wait error: {e}")
+        finally:
+            vg.pn532_release()
+            vg.modo_nfcCard = True
 
 
 # === Ventana Principal ===
@@ -444,7 +396,6 @@ class VentanaPrepago(QMainWindow):
 
         uic.loadUi(UI_PATH, self)
         
-        # UI básica
         self.btn_pagar_con_efectivo.clicked.connect(self.pagar_con_efectivo)
         self.label_tipo.setText(f"{self.tipo} - Precio: ${self.precio:.2f}")
 
@@ -455,7 +406,6 @@ class VentanaPrepago(QMainWindow):
         self.loop = QEventLoop()
         self.destroyed.connect(self.loop.quit)
 
-        # Buzzer (no explotar si ya lo configuró el hilo)
         try:
             if not GPIO.getmode():
                 GPIO.setwarnings(False)
@@ -468,12 +418,12 @@ class VentanaPrepago(QMainWindow):
 
     def pn532_hard_reset(self):
         try:
-            """Pulso de reset a PN532 por RSTO (activo en bajo)."""
             print("Hard reset PN532")
-            GPIO.output(RSTPDN_PIN, GPIO.LOW)
-            time.sleep(0.4)   # >=100 ms en bajo
-            GPIO.output(RSTPDN_PIN, GPIO.HIGH)
-            time.sleep(0.6)   # espera a que arranque
+            with vg.pn532_lock:
+                GPIO.output(RSTPDN_PIN, GPIO.LOW)
+                time.sleep(0.4)
+                GPIO.output(RSTPDN_PIN, GPIO.HIGH)
+                time.sleep(0.6)
         except Exception as e:
             logger.error(f"Error al resetear el lector NFC: {e}")
         
@@ -490,16 +440,8 @@ class VentanaPrepago(QMainWindow):
         return self.exito_pago
 
     def iniciar_hce(self):
-        try:
-            if vg.modo_nfcCard:
-                self.label_info.setText("Modo tarjeta activado")
-                QTimer.singleShot(2000, self.close)
-                return
-        except Exception as e:
-            self.label_info.setText(f"Error NFC: {e}")
-            logger.error(f"Error NFC (modo tarjeta): {e}")
-            QTimer.singleShot(2000, self.close)
-            return
+        # Pausa el lector concurrente
+        vg.modo_nfcCard = False
 
         self.worker = HCEWorker(self.total_hce, self.precio, self.tipo_num, self.id_tarifa, self.geocerca, self.servicio, self.setting, self.origen, self.destino)
         self.worker.pago_exitoso.connect(self.pago_exitoso)
@@ -511,10 +453,8 @@ class VentanaPrepago(QMainWindow):
         
     def error_inicializacion_nfc(self, mensaje):
         logger.warning(f"Error de inicialización: {mensaje}")
-        print("Error de inicialización: "+str(mensaje))
         self.label_info.setStyleSheet("color: red;")
         self.label_info.setText(mensaje)
-
         try:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Critical)
@@ -524,12 +464,9 @@ class VentanaPrepago(QMainWindow):
             msg.exec_()
         except Exception as e:
             logger.debug(f"No se pudo mostrar QMessageBox: {e}")
-
-        # Cierra la ventana tras 2 segundos
         QTimer.singleShot(1000, self.close)
         
     def _actualizar_totales_settings(self, data: dict):
-        """Actualiza contadores en QSettings de forma segura desde datos recibidos por señal."""
         try:
             setting_pasajero = data.get("setting_pasajero", "")
             precio = float(data.get("precio", 0))
@@ -552,11 +489,9 @@ class VentanaPrepago(QMainWindow):
 
             total_folios = int(self.settings.value("total_de_folios_digital", "0") or 0)
             self.settings.setValue("total_de_folios_digital", str(total_folios + 1))
-
-            self.settings.sync()  # fuerza la escritura inmediata
+            self.settings.sync()
         except Exception as e:
             logger.error(f"Error actualizando QSettings: {e}")
-
 
     def pago_exitoso(self, data):
         self.pagados += 1
@@ -564,41 +499,24 @@ class VentanaPrepago(QMainWindow):
         self.label_info.setStyleSheet("color: green;")
         self.label_info.setText(f"Pagado {self.pagados}/{self.total_hce}")
 
-        # Cambiar GIF a pagado
         self.movie.stop()
         self.movie = QMovie(GIF_PAGADO)
         self.label_icon.setMovie(self.movie)
         self.movie.start()
-        
-        # self.mostrar_mensaje_exito()
 
         if self.pagados >= self.total_hce:
             self.exito_pago = {'hecho': True, 'pagado_efectivo': False, 'folio': data['folio'], 'fecha': data['fecha'], 'hora': data['hora']}
             QTimer.singleShot(2000, self.close)
         else:
-            # Volver a mostrar el gif de "cargando" después de 2 segundos
             QTimer.singleShot(2000, self.restaurar_cargando)
-    
-    # def mostrar_mensaje_exito(self):
-    #     try:
-    #         msg = QMessageBox(self)
-    #         msg.setIcon(QMessageBox.Information)
-    #         msg.setWindowTitle("Pago Exitoso")
-    #         msg.setText("El pago se realizó exitosamente.")
-    #         msg.setStandardButtons(QMessageBox.Ok)
-    #         msg.exec_()
-    #     except Exception as e:
-    #         logger.debug(f"No se pudo mostrar QMessageBox (posible modo sin X11): {e}")
 
     def mostrar_mensaje_exito_bloqueante(self):
-
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Information)
         msg.setWindowTitle("Pago Exitoso")
         msg.setText("El pago se realizó exitosamente.")
         msg.setStandardButtons(QMessageBox.Ok)
         msg.exec_()
-        # Liberar al worker
         self.worker.mutex.lock()
         self.worker.cond.wakeAll()
         self.worker.mutex.unlock()
@@ -618,14 +536,11 @@ class VentanaPrepago(QMainWindow):
 
     def cerrar_ventana(self):
         logger.info("Pago cancelado por el usuario.")
-        try:
-            vg.modo_nfcCard = True
-        except Exception:
-            pass
         self.exito_pago = {'hecho': False, 'pagado_efectivo': False, 'folio': None, 'fecha': None, 'hora': None}
         if self.worker:
             self.worker.stop()
         self.pn532_hard_reset()
+        vg.modo_nfcCard = True
         self.close()
 
     def closeEvent(self, event):
@@ -634,5 +549,6 @@ class VentanaPrepago(QMainWindow):
                 self.worker.stop()
         except Exception as e:
             logger.debug(f"closeEvent stop error: {e}")
+        vg.modo_nfcCard = True
         self.loop.quit()
         event.accept()

@@ -4,6 +4,9 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 **Autor: Ernesto Lomar**
 
 Linea cronológica:
+- v3.56:
+  - Se cambio el flujo de trabajo de LeerTarjeta y prepago.
+  - Se implemento un nuevo boton en la pantalla de inicio para reiniciar el Reader.
 - v3.55:
   - Se implemento la venta digital por codigos QR.
   - Se mejora el .so y el codigo de python de la detección de tarjetas para el problema de RX.

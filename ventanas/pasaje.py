@@ -133,6 +133,7 @@ class VentanaPasaje(QWidget):
             self.settings = QSettings('/home/pi/Urban_Urbano/ventanas/settings.ini', QSettings.IniFormat)
             self.Unidad = str(obtener_datos_aforo()[1])
             vg.modo_nfcCard = False
+            time.sleep(0.2)
         except Exception as e:
             logging.info(e)
     
@@ -166,6 +167,7 @@ class VentanaPasaje(QWidget):
         try:
             vg.modo_nfcCard = True
             vg.vendiendo_boleto = False
+            time.sleep(0.2)
             self.close()
         except Exception as e:
             logging.info(e)
@@ -367,6 +369,7 @@ class VentanaPasaje(QWidget):
                     # 2) luego HCE de este tipo, uno por ventana
                     total_hce = datos.total_pasajeros_tarjeta
                     for _ in range(total_hce):
+                        vg.modo_nfcCard = False  # pausa lector concurrente
                         ventana = VentanaPrepago(
                             tipo=tipo, tipo_num=tipo_num, setting=setting,
                             total_hce=1, precio=precio, id_tarifa=self.id_tabla,
@@ -408,6 +411,7 @@ class VentanaPasaje(QWidget):
                             self.ve.show()
             
             vg.modo_nfcCard = True
+            time.sleep(0.2)
 
         except Exception as e:
             print("Error en handle_pagar: ", e)

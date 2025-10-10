@@ -6,7 +6,7 @@
 # Script para almacenar las variables globales que se esten utilizando en el programa
 ##########################################
 
-version_del_software = "EL.v3.55"
+version_del_software = "EL.v3.56"
 banderaServicio=False
 longitud = 0
 latitud = 0
@@ -49,3 +49,31 @@ class VentanaActual(Enum):
   CERRAR_TURNO = 'cerrar_turno',
   
 ventana_actual = VentanaActual.CHOFER
+
+# ---- Arbitraje PN532 ----
+import threading, time
+pn532_lock = threading.RLock()
+pn532_owner = None
+
+def pn532_acquire(owner: str, timeout: float = 3.0) -> bool:
+    """Intenta tomar el lock global del PN532."""
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if pn532_lock.acquire(blocking=False):
+            global pn532_owner
+            pn532_owner = owner
+            return True
+        time.sleep(0.005)
+    return False
+
+def pn532_release():
+    """Libera el lock global del PN532."""
+    global pn532_owner
+    pn532_owner = None
+    try:
+        pn532_lock.release()
+    except Exception:
+        pass
+
+# Señal de reset solicitada por UI externa; la consume el dueño del lock
+pn532_reset_requested = False
