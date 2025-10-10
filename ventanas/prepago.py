@@ -161,6 +161,24 @@ class HCEWorker(QThread):
             logger.exception(f"Error fatal al iniciar el lector NFC: {e}")
             self.error_inicializacion.emit("No se pudo iniciar el lector NFC")
             self.running = False
+
+    def _recrear_pn532(self, recrear_spi=True, reintentos=5, pausa=0.06):
+        """Recrea la instancia y vuelve a hacer begin/SAMConfig tras un reset."""
+        for i in range(reintentos):
+            try:
+                with vg.pn532_lock:
+                    if recrear_spi:
+                        self.PN532_SPI = Pn532Spi(Pn532Spi.SS0_GPIO8)
+                    self.nfc = Pn532(self.PN532_SPI)
+                    self.nfc.begin()
+                    ver = self.nfc.getFirmwareVersion()
+                    self.nfc.SAMConfig()
+                logger.info(f"PN532 reabierto OK: {ver}")
+                return True
+            except Exception as e:
+                logger.warning(f"Recrear PN532 ({i+1}/{reintentos}): {e}")
+                time.sleep(pausa)
+        return False
             
     # -------------------------
     # Utilidades
@@ -260,6 +278,10 @@ class HCEWorker(QThread):
                     if self.contador_sin_dispositivo >= 15:
                         self.pago_fallido.emit("Se va a resetear el lector")
                         self.pn532_hard_reset()
+                        if not self._recrear_pn532(recrear_spi=True):
+                            self.pago_fallido.emit("No se pudo re-inicializar el PN532")
+                            time.sleep(0.5)
+                            # opcional: continue / break según tu política
                         self.contador_sin_dispositivo = 0
                         continue
                     
@@ -367,8 +389,16 @@ class HCEWorker(QThread):
 
     def stop(self):
         self.running = False
+        # despierta posibles waits de QMessageBox/condición
         try:
-            self.quit()
+            self.mutex.lock()
+            self.cond.wakeAll()
+            self.mutex.unlock()
+        except Exception:
+            pass
+        # termina el hilo
+        try:
+            self.quit()  # inocuo si no usas event loop de QThread
             self.wait(1500)
         finally:
             vg.pn532_release()
@@ -428,8 +458,34 @@ class VentanaPrepago(QMainWindow):
             logger.error(f"Error al resetear el lector NFC: {e}")
         
     def pagar_con_efectivo(self):
+        # marca salida por efectivo
         self.exito_pago = {'hecho': False, 'pagado_efectivo': True, 'folio': None, 'fecha': None, 'hora': None}
-        self.pn532_hard_reset()
+
+        # 1) detén el worker si está corriendo (desbloquea cond y libera PN532)
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+            self.worker = None
+
+        # 2) programa el cierre y reset fuera del slot, sin bloquear la UI
+        QTimer.singleShot(0, self._finish_cash)
+
+    def _finish_cash(self):
+        # reset NO bloqueante: intenta tomar el lock con timeout corto
+        try:
+            lock = getattr(vg, "pn532_lock", None)
+            if lock and lock.acquire(timeout=0.2):
+                try:
+                    GPIO.output(RSTPDN_PIN, GPIO.LOW); time.sleep(0.4)
+                    GPIO.output(RSTPDN_PIN, GPIO.HIGH); time.sleep(0.6)
+                finally:
+                    lock.release()
+            else:
+                # si no se pudo, pide reset diferido y deja que el lector lo haga
+                vg.pn532_reset_requested = True
+        except Exception as e:
+            logger.error(f"Reset PN532 diferido falló: {e}")
+
+        vg.modo_nfcCard = True
         self.close()
 
     def mostrar_y_esperar(self):

@@ -4,6 +4,9 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 **Autor: Ernesto Lomar**
 
 Linea cronológica:
+- v3.57:
+  - Se implemento la funcionalidad de que al reiniciar el lector también se reinicie la instancia del PN532 en prepago.
+  - Se arreglo el bug de que cuando se le daba a "Pagar con Efecivo" la pantalla colapbasa.
 - v3.56:
   - Se cambio el flujo de trabajo de LeerTarjeta y prepago.
   - Se implemento un nuevo boton en la pantalla de inicio para reiniciar el Reader.
