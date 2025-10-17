@@ -246,30 +246,34 @@ class HCEWorker(QThread):
         return partes
 
     def _validar_trama_ct(self, partes, folio_venta_digital):
-        if len(partes) < 5 or partes[0] != "CT":
-            print("Folio de venta digital no coincide: " + partes[4] + " != " + str(folio_venta_digital))
-            logger.warning(f"Folio de venta digital no coincide: {partes[4]} != {folio_venta_digital}")
-            return None
-        if partes[5] != str(folio_venta_digital):
-            print("Folio de venta digital no coincide: " + partes[4] + " != " + str(folio_venta_digital))
-            logger.warning(f"Folio de venta digital no coincide: {partes[4]} != {folio_venta_digital}")
-            return None
         try:
-            id_monedero = int(partes[2])
-            no_transaccion = int(partes[3])
-            saldo_posterior = float(partes[4])
-        except Exception:
+            if len(partes) < 6 or partes[0] != "CT":
+                print("Error: Trama CT inválida")
+                logger.error("Error: Trama CT inválida")
+                return None
+            if partes[5] != str(folio_venta_digital):
+                print("Folio de venta digital no coincide: " + partes[4] + " != " + str(folio_venta_digital))
+                logger.warning(f"Folio de venta digital no coincide: {partes[4]} != {folio_venta_digital}")
+                return None
+            try:
+                id_monedero = int(partes[2])
+                no_transaccion = int(partes[3])
+                saldo_posterior = float(partes[4])
+            except Exception:
+                return None
+            if not vg.folio_asignacion or id_monedero <= 0 or no_transaccion <= 0:
+                return None
+            if self.precio <= 0:
+                return None
+            return {
+                "estado": partes[1],
+                "id_monedero": id_monedero,
+                "no_transaccion": no_transaccion,
+                "saldo_posterior": saldo_posterior,
+            }
+        except Exception as e:
+            logger.error(f"Error al validar la trama CT: {e}")
             return None
-        if not vg.folio_asignacion or id_monedero <= 0 or no_transaccion <= 0:
-            return None
-        if self.precio <= 0:
-            return None
-        return {
-            "estado": partes[1],
-            "id_monedero": id_monedero,
-            "no_transaccion": no_transaccion,
-            "saldo_posterior": saldo_posterior,
-        }
         
     def run(self):
         if not self.running:
