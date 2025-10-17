@@ -62,7 +62,7 @@ PN532_INIT_REINTENTOS = 10
 PN532_INIT_INTERVALO_S = 0.05
 
 # Reintentos de interconexión con HCE
-HCE_REINTENTOS = 5
+HCE_REINTENTOS = 12
 HCE_REINTENTO_INTERVALO_S = 0.025
 
 # APDU Select AID (HCE App)
@@ -173,8 +173,9 @@ class HCEWorker(QThread):
                     self.nfc.begin()
                     ver = self.nfc.getFirmwareVersion()
                     self.nfc.SAMConfig()
-                logger.info(f"PN532 reabierto OK: {ver}")
-                return True
+                if ver:
+                    logger.info(f"PN532 reabierto OK: {ver}")
+                    return True
             except Exception as e:
                 logger.warning(f"Recrear PN532 ({i+1}/{reintentos}): {e}")
                 time.sleep(pausa)
@@ -244,8 +245,14 @@ class HCEWorker(QThread):
         partes = [p.strip() for p in texto.split(",")]
         return partes
 
-    def _validar_trama_ct(self, partes):
+    def _validar_trama_ct(self, partes, folio_venta_digital):
         if len(partes) < 5 or partes[0] != "CT":
+            print("Folio de venta digital no coincide: " + partes[4] + " != " + str(folio_venta_digital))
+            logger.warning(f"Folio de venta digital no coincide: {partes[4]} != {folio_venta_digital}")
+            return None
+        if partes[5] != str(folio_venta_digital):
+            print("Folio de venta digital no coincide: " + partes[4] + " != " + str(folio_venta_digital))
+            logger.warning(f"Folio de venta digital no coincide: {partes[4]} != {folio_venta_digital}")
             return None
         try:
             id_monedero = int(partes[2])
@@ -285,10 +292,14 @@ class HCEWorker(QThread):
                         self.contador_sin_dispositivo = 0
                         continue
                     
+                    ultimo = obtener_ultimo_folio_de_venta_digital() or (None, 0)
+                    folio_venta_digital = (ultimo[1] if isinstance(ultimo, (list, tuple)) and len(ultimo) > 1 else 0) + 1
+                    logger.info(f"Folio de venta digital asignado: {folio_venta_digital}")
+
                     fecha = strftime('%d-%m-%Y')
                     hora = strftime("%H:%M:%S")
                     servicio_cfg = self.settings.value('servicio', '') or ''
-                    trama_txt = f"{vg.folio_asignacion},{self.precio},{hora},{servicio_cfg},{self.origen},{self.destino}"
+                    trama_txt = f"{vg.folio_asignacion},{folio_venta_digital},{self.precio},{hora},{servicio_cfg},{self.origen},{self.destino}"
                     
                     logger.info("Esperando dispositivo HCE...")
                     if not self._detectar_dispositivo():
@@ -325,17 +336,13 @@ class HCEWorker(QThread):
                     
                     partes = self._parsear_respuesta_celular(back)
                     logger.info(f"Respuesta celular (partes): {partes}")
-                    datos = self._validar_trama_ct(partes)
+                    datos = self._validar_trama_ct(partes, folio_venta_digital)
                     if not datos:
                         self.pago_fallido.emit("Respuesta inválida del celular")
                         continue
 
                     if datos["estado"] == "ERR":
                         logger.warning("Celular reporta ERR en la respuesta CT.")
-                        
-                    ultimo = obtener_ultimo_folio_de_venta_digital() or (None, 0)
-                    folio_venta_digital = (ultimo[1] if isinstance(ultimo, (list, tuple)) and len(ultimo) > 1 else 0) + 1
-                    logger.info(f"Folio de venta digital asignado: {folio_venta_digital}")
                     
                     venta_guardada = guardar_venta_digital(
                         folio_venta_digital,
@@ -360,7 +367,8 @@ class HCEWorker(QThread):
                     
                     actualizar_estado_venta_digital_revisado("OK", folio_venta_digital, vg.folio_asignacion)
                     logger.info("Estado de venta actualizado a OK.")
-                        
+                    
+                    time.sleep(1)
                     self._buzzer_ok()
                     self.pagados += 1
                     self.actualizar_settings.emit({

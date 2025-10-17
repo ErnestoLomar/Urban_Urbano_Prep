@@ -40,6 +40,16 @@ from ActualizarIconos import ActualizarIconosWorker
 from servicios import Rutas
 from queries import obtener_datos_aforo, insertar_aforo, insertar_estadisticas_boletera, actualizar_socket
 from enviar_vuelta import EnviarVuelta
+import RPi.GPIO as GPIO, time
+
+RSTPDN_PIN = 13
+# Asegura GPIO inicializado
+try:
+    GPIO.setmode(GPIO.BOARD)
+    GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)
+    print("GPIO inicializado.")
+except Exception as e:
+    print("Error al inicializar el GPIO RSTPDN_PIN: " + str(e))
 
 if not os.path.exists("/home/pi/Urban_Urbano/logs"):
     os.makedirs("/home/pi/Urban_Urbano/logs")
@@ -486,16 +496,6 @@ class Ventana(QWidget):
 
     def pn532_hard_reset(self, event):
         try:
-            import RPi.GPIO as GPIO, time
-            RSTPDN_PIN = 13
-            # Asegura GPIO inicializado
-            try:
-                if GPIO.getmode() is None:
-                    GPIO.setwarnings(False)
-                    GPIO.setmode(GPIO.BOARD)
-                GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)
-            except Exception:
-                pass
 
             print("Hard reset PN532 (botón)")
             GPIO.output(RSTPDN_PIN, GPIO.LOW);  time.sleep(0.40)

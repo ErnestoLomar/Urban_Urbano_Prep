@@ -92,35 +92,35 @@ class corte(QWidget):
             self.label_version_software.setText(variables_globales.version_del_software)
             
             # EFECTIVO
-            self.label_cantidad_boletos_estud.setText(f"{str(self.settings.value('info_estudiantes')).split(',')[0]}  $")
+            self.label_cantidad_boletos_estud.setText(f"{str(self.settings.value('info_estudiantes')).split(',')[0]}")
             self.label_total_cobro_estud.setText(f"{str(self.settings.value('info_estudiantes')).split(',')[1]}")
 
-            self.label_cantidad_boletos_normal.setText(f"{str(self.settings.value('info_normales')).split(',')[0]}  $")
+            self.label_cantidad_boletos_normal.setText(f"{str(self.settings.value('info_normales')).split(',')[0]}")
             self.label_total_cobro_normal.setText(f"{str(self.settings.value('info_normales')).split(',')[1]}")
 
-            self.label_cantidad_boletos_ninio.setText(f"{str(self.settings.value('info_chicos')).split(',')[0]}  $")
+            self.label_cantidad_boletos_ninio.setText(f"{str(self.settings.value('info_chicos')).split(',')[0]}")
             self.label_total_cobro_ninio.setText(f"{str(self.settings.value('info_chicos')).split(',')[1]}")
 
-            self.label_cantidad_boletos_admayor.setText(f"{str(self.settings.value('info_ad_mayores')).split(',')[0]}  $")
+            self.label_cantidad_boletos_admayor.setText(f"{str(self.settings.value('info_ad_mayores')).split(',')[0]}")
             self.label_total_cobro_admayor.setText(f"{str(self.settings.value('info_ad_mayores')).split(',')[1]}")
             
-            self.label_cantidad_total_boletos_efectivo.setText(f"{str(self.settings.value('total_de_folios_efectivo'))}  $")
+            self.label_cantidad_total_boletos_efectivo.setText(f"{str(self.settings.value('total_de_folios_efectivo'))}")
             self.label_total_cobro_efectivo.setText(f"{str(self.settings.value('total_a_liquidar_efectivo'))}")
             
             #DIGITAL
-            self.label_cantidad_boletos_estud_digital.setText(f"{str(self.settings.value('info_estudiantes_digital')).split(',')[0]}  $")
+            self.label_cantidad_boletos_estud_digital.setText(f"{str(self.settings.value('info_estudiantes_digital')).split(',')[0]}")
             self.label_total_cobro_estud_digital.setText(f"{str(self.settings.value('info_estudiantes_digital')).split(',')[1]}")
 
-            self.label_cantidad_boletos_normal_digital.setText(f"{str(self.settings.value('info_normales_digital')).split(',')[0]}  $")
+            self.label_cantidad_boletos_normal_digital.setText(f"{str(self.settings.value('info_normales_digital')).split(',')[0]}")
             self.label_total_cobro_normal_digital.setText(f"{str(self.settings.value('info_normales_digital')).split(',')[1]}")
 
-            self.label_cantidad_boletos_ninio_digital.setText(f"{str(self.settings.value('info_chicos_digital')).split(',')[0]}  $")
+            self.label_cantidad_boletos_ninio_digital.setText(f"{str(self.settings.value('info_chicos_digital')).split(',')[0]}")
             self.label_total_cobro_ninio_digital.setText(f"{str(self.settings.value('info_chicos_digital')).split(',')[1]}")
 
-            self.label_cantidad_boletos_admayor_digital.setText(f"{str(self.settings.value('info_ad_mayores_digital')).split(',')[0]}  $")
+            self.label_cantidad_boletos_admayor_digital.setText(f"{str(self.settings.value('info_ad_mayores_digital')).split(',')[0]}")
             self.label_total_cobro_admayor_digital.setText(f"{str(self.settings.value('info_ad_mayores_digital')).split(',')[1]}")
             
-            self.label_cantidad_total_boletos_digital.setText(f"{str(self.settings.value('total_de_folios_digital'))}  $")
+            self.label_cantidad_total_boletos_digital.setText(f"{str(self.settings.value('total_de_folios_digital'))}")
             self.label_total_cobro_digital.setText(f"{str(self.settings.value('total_a_liquidar_digital'))}")
             
             print("Total a liquidar efectivo: ", self.settings.value('total_a_liquidar_efectivo'))
