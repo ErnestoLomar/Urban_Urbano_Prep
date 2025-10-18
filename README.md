@@ -11,6 +11,7 @@ Linea cronológica:
   - Se paso de 5 HCE_REINTENTOS a 12.
   - Ahora se envía el folio de venta en la trama de prepago.
   - Se añadio un sleep de 1 segundo antes que suene el zumbador al finalizar la venta digital.
+  - Nueva versión de .so.
 - v3.57:
   - Se implemento la funcionalidad de que al reiniciar el lector también se reinicie la instancia del PN532 en prepago.
   - Se arreglo el bug de que cuando se le daba a "Pagar con Efecivo" la pantalla colapbasa.
