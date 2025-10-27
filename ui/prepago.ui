@@ -136,6 +136,39 @@ Por cobrar: 2 $10.0</string>
      <string>Pago con efectivo</string>
     </property>
    </widget>
+   <widget class="QPushButton" name="btn_cancelar">
+    <property name="geometry">
+     <rect>
+      <x>650</x>
+      <y>410</y>
+      <width>131</width>
+      <height>51</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">/* Aplica solo al botón con objectName &quot;btn_cancelar&quot; */
+QPushButton#btn_cancelar {
+    background-color: #dc3545;   /* Rojo tipo peligro */
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 24px;
+    font-size: 16px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+QPushButton#btn_cancelar:hover {
+    background-color: #c82333;
+}
+QPushButton#btn_cancelar:pressed {
+    background-color: #bd2130;
+}
+</string>
+    </property>
+    <property name="text">
+     <string>Cancelar</string>
+    </property>
+   </widget>
   </widget>
  </widget>
  <resources/>

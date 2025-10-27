@@ -26,11 +26,19 @@ from calcular_distancia_geocerca import calcular_distancia
 import time
 from Detectar_geocercas import DeteccionGeocercasWorker
 
+RSTPDN_PIN = 13
+
 try:
     GPIO.setmode(GPIO.BOARD)
     GPIO.setup(33, GPIO.OUT)
 except Exception as e:
     print("No se pudo inicializar el ventilador: "+str(e))
+
+# Asegura GPIO inicializado
+try:
+    GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)
+except Exception as e:
+    print("Error al inicializar el GPIO RSTPDN_PIN: " + str(e))
 
 class Rutas(QWidget):
     
@@ -97,6 +105,8 @@ class Rutas(QWidget):
             self.list_trans1.setHeaderLabels(["Ruta", "Costo"])
             self.list_trans2.setColumnCount(2)
             self.list_trans2.setHeaderLabels(["Ruta", "Costo"])
+
+            self.reset_nfc.mousePressEvent = self.pn532_hard_reset
             
             try:
                 # Obtenemos el nombre del operador y lo mostramos en la pantalla
@@ -124,6 +134,22 @@ class Rutas(QWidget):
         except Exception as e:
             print("Error al iniciar la ventana de servicios: "+str(e))
             logging.info(e)
+
+    def pn532_hard_reset(self, event):
+        try:
+
+            print("Hard reset PN532 (botón)")
+            GPIO.output(RSTPDN_PIN, GPIO.LOW);  time.sleep(0.40)
+            GPIO.output(RSTPDN_PIN, GPIO.HIGH); time.sleep(0.60)
+            # (opcional) también levanta la bandera para que el worker se re-prepare
+            try:
+                import variables_globales as vg
+                vg.pn532_reset_requested = True
+            except Exception:
+                pass
+        except Exception as e:
+            print("Error al resetear el lector NFC: " + str(e))
+            logging.error(f"Error al resetear el lector NFC: {e}")
 
     def runDeteccionGeocercas(self):
         try:

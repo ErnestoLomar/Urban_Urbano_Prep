@@ -23,7 +23,7 @@ from variables_globales import VentanaActual
 from enviar_vuelta import EnviarVuelta
 from queries import obtener_datos_aforo
 from asignaciones_queries import guardar_estado_del_viaje
-from ventas_queries import obtener_ultimo_folio_de_item_venta, obtener_total_de_ventas_por_folioviaje, obtener_total_de_efectivo_por_folioviaje, obtener_total_de_aforos_digitales_por_folioviaje, obtener_total_saldo_digital_por_folioviaje
+from ventas_queries import obtener_ultimo_folio_de_item_venta, obtener_total_de_ventas_por_folioviaje, obtener_total_de_efectivo_por_folioviaje, obtener_total_de_aforos_digitales_por_folioviaje, obtener_total_saldo_digital_por_folioviaje, obtener_ultimo_folio_de_venta_digital
 
 try:
     GPIO.setmode(GPIO.BOARD)
@@ -90,6 +90,18 @@ class corte(QWidget):
 
             # Se muestra la version del software
             self.label_version_software.setText(variables_globales.version_del_software)
+
+            try:
+                # Obtener ultimos folios de venta efectivo y digital
+                folio_ultimo_efectivo = obtener_ultimo_folio_de_item_venta()[1]
+                folio_ultimo_digital = obtener_ultimo_folio_de_venta_digital()[1]
+                
+                # Mostrar folios en la pantalla
+                self.label_ultimo_folio_efectivo.setText("Ultimo folio venta efectivo: "+str(folio_ultimo_efectivo))
+                self.label_ultimo_folio_digital.setText("Ultimo folio venta digital: "+str(folio_ultimo_digital))
+            except Exception as e:
+                print("Error al obtener los ultimos folios de venta: "+str(e))
+                logging.info("Error al obtener los ultimos folios de venta: "+str(e))
             
             # EFECTIVO
             self.label_cantidad_boletos_estud.setText(f"{str(self.settings.value('info_estudiantes')).split(',')[0]}")

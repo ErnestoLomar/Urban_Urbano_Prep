@@ -406,6 +406,25 @@ border-radius: 10px;</string>
     <string>Operador:</string>
    </property>
   </widget>
+  <widget class="QLabel" name="reset_nfc">
+   <property name="geometry">
+    <rect>
+     <x>750</x>
+     <y>60</y>
+     <width>41</width>
+     <height>41</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="pixmap">
+    <pixmap>../Imagenes/circular.png</pixmap>
+   </property>
+   <property name="scaledContents">
+    <bool>true</bool>
+   </property>
+  </widget>
   <zorder>label_font</zorder>
   <zorder>opcion</zorder>
   <zorder>Parada</zorder>
@@ -418,6 +437,7 @@ border-radius: 10px;</string>
   <zorder>label_retroceder</zorder>
   <zorder>label_avanzar</zorder>
   <zorder>label_operador</zorder>
+  <zorder>reset_nfc</zorder>
  </widget>
  <resources/>
  <connections/>
