@@ -5,6 +5,9 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 
 Linea cronológica:
 
+- v3.61:
+  - Se cambio la libreria de prepago de pn532pi a adafruit_pn532.
+  - Se desactivo el uso de RPI.GPIO para el zumbador, ventilador y reset_reader.
 - v3.60:
   - Se regreso al codigo de prepago.py de la version 3.58 con la implementacion del boton de cancelar transaccion.
 - v3.59:

@@ -29,11 +29,11 @@ import variables_globales as vg
 from emergentes import VentanaEmergente
 from prepago import VentanaPrepago
 
-try:
-    GPIO.setmode(GPIO.BOARD)
-    GPIO.setup(12, GPIO.OUT)
-except Exception as e:
-    print("No se pudo inicializar el zumbador: "+str(e))
+# try:
+#     GPIO.setmode(GPIO.BOARD)
+#     GPIO.setup(12, GPIO.OUT)
+# except Exception as e:
+#     print("No se pudo inicializar el zumbador: "+str(e))
 
 ##############################################################################################
 # Clase Pasajero que representa los diferentes tipos de pasajeros que existen en el sistema
@@ -249,11 +249,12 @@ class VentanaPasaje(QWidget):
             logging.info(e)
             
     def sonar_zumbador(repeticiones=5, duracion=0.055):
-        for _ in range(repeticiones):
-            GPIO.output(12, True)
-            time.sleep(duracion)
-            GPIO.output(12, False)
-            time.sleep(duracion)
+        print("Sonando zumbador")
+        # for _ in range(repeticiones):
+        #     GPIO.output(12, True)
+        #     time.sleep(duracion)
+        #     GPIO.output(12, False)
+        #     time.sleep(duracion)
 
     #Función para manejar el evento de darle click al label pagar
     def handle_pagar(self, event):
@@ -266,11 +267,11 @@ class VentanaPasaje(QWidget):
             if len(vg.folio_asignacion) <= 1:
                 self.ve = VentanaEmergente("VOID", "No existe viaje", 4.5)
                 self.ve.show()
-                for _ in range(5):
-                    GPIO.output(12, True)
-                    time.sleep(0.055)
-                    GPIO.output(12, False)
-                    time.sleep(0.055)
+                # for _ in range(5):
+                #     GPIO.output(12, True)
+                #     time.sleep(0.055)
+                #     GPIO.output(12, False)
+                #     time.sleep(0.055)
                 self.cerrar_servicios.emit()
                 return
 
