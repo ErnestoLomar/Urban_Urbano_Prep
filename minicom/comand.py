@@ -60,8 +60,13 @@ except Exception as e:
     print("\x1b[1;31;47m"+"comand.py, linea 48, Error al abrir el puerto serial: "+str(e)+'\033[0;m')
     logging.info(e)
 
-GPIO.setmode(GPIO.BOARD)
-GPIO.setup(31, GPIO.OUT)
+try:
+    GPIO.setmode(GPIO.BOARD)
+    GPIO.setup(31, GPIO.OUT)
+except Exception as e:
+    print("\x1b[1;31;47m"+"comand.py, linea 66, Error al abrir el puerto serial: "+str(e)+'\033[0;m')
+    logging.info(e)
+    
 class Principal_Modem:
 
     global ser

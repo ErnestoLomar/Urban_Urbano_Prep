@@ -5,6 +5,8 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 
 Linea cronológica:
 
+- v3.60:
+  - Se regreso al codigo de prepago.py de la version 3.58 con la implementacion del boton de cancelar transaccion.
 - v3.59:
   - Se modifico la interfaz de corte, pasaje y prepago.
   - Se agrego el boton de reset_reader en las ventanas de servicio.

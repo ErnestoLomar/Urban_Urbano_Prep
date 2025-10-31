@@ -249,6 +249,7 @@ class LeerTarjetaWorker(QObject):
                         try:
                             # Importante: sin locks en estas llamadas
                             tipo = self._cstr(self.lib.tipoTiscEV2())[0:2]
+                            print("Tipo de tarjeta: ", tipo)
                             if tipo == "KI":
                                 datos_completos_tarjeta = self._cstr(self.lib.obtenerVigencia())
                                 vigenciaTarjeta = datos_completos_tarjeta[:12]
