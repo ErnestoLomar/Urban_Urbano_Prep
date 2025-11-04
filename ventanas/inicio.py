@@ -44,12 +44,12 @@ import RPi.GPIO as GPIO, time
 
 RSTPDN_PIN = 13
 # Asegura GPIO inicializado
-# try:
-#     GPIO.setmode(GPIO.BOARD)
-#     GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)
-#     print("GPIO inicializado.")
-# except Exception as e:
-#     print("Error al inicializar el GPIO RSTPDN_PIN: " + str(e))
+try:
+    GPIO.setmode(GPIO.BOARD)
+    GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)
+    print("GPIO inicializado.")
+except Exception as e:
+    print("Error al inicializar el GPIO RSTPDN_PIN: " + str(e))
 
 if not os.path.exists("/home/pi/Urban_Urbano/logs"):
     os.makedirs("/home/pi/Urban_Urbano/logs")
@@ -496,15 +496,16 @@ class Ventana(QWidget):
 
     def pn532_hard_reset(self, event):
         try:
+
             print("Hard reset PN532 (botón)")
-            # GPIO.output(RSTPDN_PIN, GPIO.LOW);  time.sleep(0.40)
-            # GPIO.output(RSTPDN_PIN, GPIO.HIGH); time.sleep(0.60)
-            # # (opcional) también levanta la bandera para que el worker se re-prepare
-            # try:
-            #     import variables_globales as vg
-            #     vg.pn532_reset_requested = True
-            # except Exception:
-            #     pass
+            GPIO.output(RSTPDN_PIN, GPIO.LOW);  time.sleep(0.40)
+            GPIO.output(RSTPDN_PIN, GPIO.HIGH); time.sleep(0.60)
+            # (opcional) también levanta la bandera para que el worker se re-prepare
+            try:
+                import variables_globales as vg
+                vg.pn532_reset_requested = True
+            except Exception:
+                pass
         except Exception as e:
             print("Error al resetear el lector NFC: " + str(e))
             logging.error(f"Error al resetear el lector NFC: {e}")

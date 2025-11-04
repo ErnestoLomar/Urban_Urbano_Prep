@@ -28,17 +28,17 @@ from Detectar_geocercas import DeteccionGeocercasWorker
 
 RSTPDN_PIN = 13
 
-# try:
-#     GPIO.setmode(GPIO.BOARD)
-#     GPIO.setup(33, GPIO.OUT)
-# except Exception as e:
-#     print("No se pudo inicializar el ventilador: "+str(e))
+try:
+    GPIO.setmode(GPIO.BOARD)
+    GPIO.setup(33, GPIO.OUT)
+except Exception as e:
+    print("No se pudo inicializar el ventilador: "+str(e))
 
 # Asegura GPIO inicializado
-# try:
-#     GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)
-# except Exception as e:
-#     print("Error al inicializar el GPIO RSTPDN_PIN: " + str(e))
+try:
+    GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)
+except Exception as e:
+    print("Error al inicializar el GPIO RSTPDN_PIN: " + str(e))
 
 class Rutas(QWidget):
     
@@ -126,7 +126,7 @@ class Rutas(QWidget):
             self.label_retroceder.hide()
             self.cargar_servicios(obtener_servicio_por_numero_de_servicio_y_origen(int(self.servicio_info[0]), self.de))
             self.cargar_transbordos(obtener_transbordos_por_origen_y_numero_de_servicio(int(self.servicio_info[0]), self.de))
-            #GPIO.output(33, True)
+            GPIO.output(33, True)
             #if detectando_geocercas_hilo == False:
                 #print("Iniciando hilo de detección de geocercas")
                 #variables_globales.detectando_geocercas_hilo = True
@@ -137,15 +137,16 @@ class Rutas(QWidget):
 
     def pn532_hard_reset(self, event):
         try:
+
             print("Hard reset PN532 (botón)")
-            # GPIO.output(RSTPDN_PIN, GPIO.LOW);  time.sleep(0.40)
-            # GPIO.output(RSTPDN_PIN, GPIO.HIGH); time.sleep(0.60)
-            # # (opcional) también levanta la bandera para que el worker se re-prepare
-            # try:
-            #     import variables_globales as vg
-            #     vg.pn532_reset_requested = True
-            # except Exception:
-            #     pass
+            GPIO.output(RSTPDN_PIN, GPIO.LOW);  time.sleep(0.40)
+            GPIO.output(RSTPDN_PIN, GPIO.HIGH); time.sleep(0.60)
+            # (opcional) también levanta la bandera para que el worker se re-prepare
+            try:
+                import variables_globales as vg
+                vg.pn532_reset_requested = True
+            except Exception:
+                pass
         except Exception as e:
             print("Error al resetear el lector NFC: " + str(e))
             logging.error(f"Error al resetear el lector NFC: {e}")
@@ -265,7 +266,7 @@ class Rutas(QWidget):
             self.settings.setValue('nombre_de_operador_inicio', "")
             self.settings.setValue('nombre_de_operador_final', "")
             
-            #GPIO.output(33, False)
+            GPIO.output(33, False)
             
             self.close()
         except Exception as e:

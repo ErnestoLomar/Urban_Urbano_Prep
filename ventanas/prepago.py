@@ -1,24 +1,16 @@
-# -*- coding: utf-8 -*-
-import sys
-import time
-import binascii
-import logging
-from time import strftime
-
-# Qt
 from PyQt5.QtWidgets import QMainWindow, QMessageBox
 from PyQt5.QtCore import QEventLoop, QTimer, QThread, pyqtSignal, QSettings, QWaitCondition, QMutex
 from PyQt5 import uic
 from PyQt5.QtGui import QMovie
 
-# GPIO solo para buzzer
+import time
+import binascii
+import logging
+import sys
+from time import strftime
+
 import RPi.GPIO as GPIO
-
-# Blinka adapter PN532
-import board
-from pn532_blinka_adapter import Pn532Blinka
-
-# Proyecto
+from pn532pi import Pn532, Pn532Spi
 import variables_globales as vg
 
 # === Rutas/Imports de DB ===
@@ -46,7 +38,7 @@ fh = logging.FileHandler(LOG_FILE); fh.setLevel(logging.DEBUG); fh.setFormatter(
 ch = logging.StreamHandler(sys.stdout); ch.setLevel(logging.INFO); ch.setFormatter(_fmt)
 if not logger.handlers:
     logger.addHandler(fh); logger.addHandler(ch)
-
+    
 # =========================
 # Constantes útiles
 # =========================
@@ -55,12 +47,15 @@ UI_PATH = "/home/pi/Urban_Urbano/ui/prepago.ui"
 GIF_CARGANDO = "/home/pi/Urban_Urbano/Imagenes/cargando.gif"
 GIF_PAGADO = "/home/pi/Urban_Urbano/Imagenes/pagado.gif"
 
-# Buzzer (solo este pin con RPi.GPIO)
-GPIO_PIN_BUZZER = 12  # BOARD 12
+# Buzzer (BOARD pin 12)
+GPIO_PIN_BUZZER = 12
+
+# RSTO del PN532 -> GPIO27 (pin físico 13)
+RSTPDN_PIN = 13
 
 # Tiempo total de espera para detección (segundos)
 DETECCION_TIMEOUT_S = 1.5
-DETECCION_INTERVALO_S = 0.010  # evita busy-wait
+DETECCION_INTERVALO_S = 0.005
 
 # Reintentos de inicio PN532
 PN532_INIT_REINTENTOS = 10
@@ -70,21 +65,30 @@ PN532_INIT_INTERVALO_S = 0.05
 HCE_REINTENTOS = 12
 HCE_REINTENTO_INTERVALO_S = 0.025
 
-# APDU Select AID (HCE App) — ajusta a tu AID real
+# APDU Select AID (HCE App) — AID Urban: F0 55 72 62 54 00 41
 SELECT_AID_APDU = bytearray([
     0x00, 0xA4, 0x04, 0x00,
     0x07, 0xF0, 0x55, 0x72, 0x62, 0x54, 0x00, 0x41,
     0x00
 ])
 
-# GPIO buzzer (no tocar RESET aquí)
+# ===== NUEVO (robusto): parámetros de estabilidad estilo hce_reader.py =====
+EXCHANGE_RETRIES   = 3         # reintentos cortos por APDU
+RECOVER_TRIES      = 20        # intentos de re-enganche por método
+RECOVER_SLEEP_S    = 0.06      # espera entre intentos en cada método
+RF_RESET_HOLD_S    = 0.08      # tiempo RF OFF antes de ON
+
+# AID como bytes (para construir SELECT dinámicamente)
+AID_BYTES = bytes([0xF0, 0x55, 0x72, 0x62, 0x54, 0x00, 0x41])
+
+# GPIO buzzer
 try:
     GPIO.setwarnings(False)
     GPIO.setmode(GPIO.BOARD)
     GPIO.setup(GPIO_PIN_BUZZER, GPIO.OUT, initial=GPIO.LOW)
+    GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)
 except Exception as e:
     logger.error(f"No se pudo inicializar el zumbador: {e}")
-
 
 # === Hilo seguro para HCE ===
 class HCEWorker(QThread):
@@ -113,20 +117,187 @@ class HCEWorker(QThread):
         self.cond = QWaitCondition()
         self.settings = QSettings(SETTINGS_PATH, QSettings.IniFormat)
 
-        # PN532 por Blinka: CE0 (BOARD24) y RESET en D27 (BOARD13)
-        self.nfc = Pn532Blinka(cs_pin=board.CE0, rst_pin=board.D27)
+        self.PN532_SPI = Pn532Spi(Pn532Spi.SS0_GPIO8)
+        self.nfc = Pn532(self.PN532_SPI)
 
+    # ---------- Utilidades nuevas de APDU/SELECT/RECOVERY (integradas) ----------
+    def _to_hex(self, b: bytes) -> str:
+        return binascii.hexlify(b).decode().upper() if b else ""
+
+    def _build_select_aid(self, aid_bytes: bytes) -> bytes:
+        # SELECT by AID (case 4s): CLA INS P1 P2 Lc AID Le(00)
+        return bytes([0x00, 0xA4, 0x04, 0x00, len(aid_bytes)]) + aid_bytes + b"\x00"
+
+    def _build_apdu(self, cla: int, ins: int, p1: int, p2: int, data: bytes = b"") -> bytes:
+        if len(data) > 255:
+            raise ValueError("Data demasiado grande para case 3 short APDU.")
+        return bytes([cla & 0xFF, ins & 0xFF, p1 & 0xFF, p2 & 0xFF, len(data)]) + data
+
+    def _parse_rapdu(self, resp: bytes):
+        """Devuelve (data, sw1, sw2). Si no hay SW, (data, 0x00, 0x00)."""
+        if resp is None or len(resp) == 0:
+            return b"", 0x00, 0x00
+        if len(resp) >= 2:
+            # Heurística: si termina en 9000/6A82, sepáralo como SW
+            sw1, sw2 = resp[-2], resp[-1]
+            if (sw1, sw2) in ((0x90, 0x00), (0x6A, 0x82)):
+                data = resp[:-2]
+                return data, sw1, sw2
+        # Sin SW explícito
+        return resp, 0x00, 0x00
+
+    def _strip_sw(self, raw: bytes):
+        """Compat con respuestas PN532 que traen datos+SW o solo datos."""
+        data, sw1, sw2 = self._parse_rapdu(raw)
+        sw = bytes([sw1, sw2]) if (sw1 or sw2) else b""
+        return data, sw
+
+    def _safe_exchange(self, apdu: bytes, retries: int = EXCHANGE_RETRIES):
+        """Intercambio con reintentos cortos estilo hce_reader.py."""
+        last_state = (False, b"")
+        for _ in range(retries):
+            try:
+                with vg.pn532_lock:
+                    ok, resp = self.nfc.inDataExchange(bytearray(apdu))
+                if ok and resp:
+                    return True, bytes(resp)
+                last_state = (ok, resp if resp else b"")
+            except Exception as e:
+                last_state = (False, b"")
+                logger.debug(f"inDataExchange exception: {e}")
+            time.sleep(0.05)
+        return False, last_state[1]
+
+    def _try_release(self):
+        try:
+            with vg.pn532_lock:
+                if hasattr(self.nfc, "inRelease"):
+                    self.nfc.inRelease()
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _try_rf_reset(self):
+        """RF OFF/ON si existe en el wrapper."""
+        try:
+            with vg.pn532_lock:
+                if hasattr(self.nfc, "RFConfiguration"):
+                    self.nfc.RFConfiguration(0x01, 0x00)  # RF off
+                    time.sleep(RF_RESET_HOLD_S)
+                    self.nfc.RFConfiguration(0x01, 0x01)  # RF on
+                    return True
+                if hasattr(self.nfc, "rfConfiguration"):
+                    self.nfc.rfConfiguration(0x01, 0x00)
+                    time.sleep(RF_RESET_HOLD_S)
+                    self.nfc.rfConfiguration(0x01, 0x01)
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _try_light_reconfig(self):
+        """Reconfig suave si RF reset no está disponible."""
+        try:
+            with vg.pn532_lock:
+                self.nfc.SAMConfig()
+            return True
+        except Exception:
+            pass
+        try:
+            with vg.pn532_lock:
+                self.nfc.begin()
+            return True
+        except Exception:
+            return False
+
+    def _reselect_without_moving(self, aid: bytes):
+        """Método 1: release -> re-poll -> SELECT."""
+        self._try_release()
+        for _ in range(RECOVER_TRIES):
+            try:
+                with vg.pn532_lock:
+                    if self.nfc.inListPassiveTarget():
+                        select_apdu = self._build_select_aid(aid)
+                        ok, resp = self._safe_exchange(select_apdu)
+                        if ok and resp:
+                            _, sw = self._strip_sw(resp)
+                            if sw == b"\x90\x00" or resp == b"\x90\x00":
+                                logger.info("Re-SELECT OK (release).")
+                                return True
+            except Exception as e:
+                logger.debug(f"reselect_without_moving err: {e}")
+            time.sleep(RECOVER_SLEEP_S)
+        return False
+
+    def _reselect_with_rf_reset(self, aid: bytes):
+        """Método 2: RF reset -> re-poll -> SELECT."""
+        if not self._try_rf_reset():
+            return False
+        for _ in range(RECOVER_TRIES):
+            try:
+                with vg.pn532_lock:
+                    if self.nfc.inListPassiveTarget():
+                        select_apdu = self._build_select_aid(aid)
+                        ok, resp = self._safe_exchange(select_apdu)
+                        if ok and resp:
+                            _, sw = self._strip_sw(resp)
+                            if sw == b"\x90\x00" or resp == b"\x90\x00":
+                                logger.info("Re-SELECT OK (RF reset).")
+                                return True
+            except Exception as e:
+                logger.debug(f"reselect_with_rf_reset err: {e}")
+            time.sleep(RECOVER_SLEEP_S)
+        return False
+
+    def _reselect_with_light_reconfig(self, aid: bytes):
+        """Método 3: SAMConfig/begin -> re-poll -> SELECT."""
+        if not self._try_light_reconfig():
+            return False
+        for _ in range(RECOVER_TRIES):
+            try:
+                with vg.pn532_lock:
+                    if self.nfc.inListPassiveTarget():
+                        select_apdu = self._build_select_aid(aid)
+                        ok, resp = self._safe_exchange(select_apdu)
+                        if ok and resp:
+                            _, sw = self._strip_sw(resp)
+                            if sw == b"\x90\x00" or resp == b"\x90\x00":
+                                logger.info("Re-SELECT OK (reconfig).")
+                                return True
+            except Exception as e:
+                logger.debug(f"reselect_with_light_reconfig err: {e}")
+            time.sleep(RECOVER_SLEEP_S)
+        return False
+
+    def _recover_session(self, aid: bytes):
+        """Orquestador: intenta 1) release, 2) RF reset, 3) reconfig, 4) hard reset."""
+        if self._reselect_without_moving(aid):
+            return True
+        if self._reselect_with_rf_reset(aid):
+            return True
+        if self._reselect_with_light_reconfig(aid):
+            return True
+        # Último recurso: tu hard reset + recrear
+        logger.warning("Recovery suave falló; probando hard reset PN532 …")
+        self.pn532_hard_reset()
+        if self._recrear_pn532(recrear_spi=True):
+            # tras recrear, intenta SELECT directamente
+            return self._reselect_with_light_reconfig(aid) or self._reselect_without_moving(aid)
+        return False
+
+    # ------------------------- INICIALIZACIÓN PN532 -------------------------
     def pn532_hard_reset(self):
         try:
-            logger.info("Hard reset PN532")
+            print("Hard reset PN532")
             with vg.pn532_lock:
-                self.nfc.hard_reset()
+                GPIO.output(RSTPDN_PIN, GPIO.LOW)
+                time.sleep(0.4)
+                GPIO.output(RSTPDN_PIN, GPIO.HIGH)
+                time.sleep(0.6)
         except Exception as e:
             logger.error(f"Error al resetear el lector NFC: {e}")
-
-    # -------------------------
-    # Inicialización PN532
-    # -------------------------
+        
     def iniciar_hce(self):
         try:
             # Toma control exclusivo del PN532
@@ -143,6 +314,11 @@ class HCEWorker(QThread):
                         self.nfc.begin()
                         versiondata = self.nfc.getFirmwareVersion()
                         logger.info(f"Firmware PN532: {versiondata}")
+                        # margen de activación amplio (si está disponible)
+                        try:
+                            self.nfc.setPassiveActivationRetries(0xFF)
+                        except Exception:
+                            pass
                         self.nfc.SAMConfig()
                     if versiondata:
                         logger.info("PN532 inicializado correctamente.")
@@ -169,10 +345,16 @@ class HCEWorker(QThread):
         for i in range(reintentos):
             try:
                 with vg.pn532_lock:
-                    # recrear siempre para homogeneidad
-                    self.nfc = Pn532Blinka(cs_pin=board.CE0, rst_pin=board.D27)
+                    if recrear_spi:
+                        self.PN532_SPI = Pn532Spi(Pn532Spi.SS0_GPIO8)
+                    self.nfc = Pn532(self.PN532_SPI)
                     self.nfc.begin()
                     ver = self.nfc.getFirmwareVersion()
+                    # margen de activación amplio (si está disponible)
+                    try:
+                        self.nfc.setPassiveActivationRetries(0xFF)
+                    except Exception:
+                        pass
                     self.nfc.SAMConfig()
                 if ver:
                     logger.info(f"PN532 reabierto OK: {ver}")
@@ -181,10 +363,8 @@ class HCEWorker(QThread):
                 logger.warning(f"Recrear PN532 ({i+1}/{reintentos}): {e}")
                 time.sleep(pausa)
         return False
-
-    # -------------------------
-    # Utilidades
-    # -------------------------
+            
+    # ------------------------- Utilidades previas -------------------------
     def _buzzer_ok(self):
         try:
             GPIO.output(GPIO_PIN_BUZZER, True)
@@ -202,60 +382,72 @@ class HCEWorker(QThread):
                 time.sleep(0.055)
         except Exception as e:
             logger.debug(f"Buzzer ERR error: {e}")
-
+            
+    # --- REEMPLAZO: enviar APDU ahora usa _safe_exchange y tolera SW ---
     def _enviar_apdu(self, data_bytes):
-        """Envía un APDU y devuelve (success, respuesta_bytes_o_b'')."""
+        """
+        Envía APDU (ya construida) y devuelve (success, respuesta_bytes).
+        Usamos _safe_exchange con reintentos cortos.
+        """
         try:
-            with vg.pn532_lock:
-                success, response = self.nfc.inDataExchange(bytearray(data_bytes))
-            if response is None:
-                response = b""
-            return success, response
+            ok, response = self._safe_exchange(bytearray(data_bytes))
+            if not ok or response is None:
+                return False, b""
+            return True, response
         except Exception as e:
             logger.error(f"Error inDataExchange: {e}")
             return False, b""
-
+        
     def _detectar_dispositivo(self, timeout_s=DETECCION_TIMEOUT_S, intervalo_s=DETECCION_INTERVALO_S):
         inicio = time.time()
         while self.running and (time.time() - inicio) < timeout_s:
             try:
                 with vg.pn532_lock:
-                    if self.nfc.inListPassiveTarget(timeout=0.2):
+                    if self.nfc.inListPassiveTarget():
                         return True
             except Exception as e:
                 logger.debug(f"inListPassiveTarget error: {e}")
             time.sleep(intervalo_s)
         return False
 
+    # --- REEMPLAZO: SELECT robusto (acepta 9000 solo o FCI+9000) ---
     def _seleccionar_aid(self):
-        ok, r = self._enviar_apdu(SELECT_AID_APDU)
-        if not ok or len(r) < 2:
-            logger.info("SELECT AID sin respuesta válida")
-            return False
-        sw = r[-2:]  # SW1SW2 al final
-        logger.info(f"SELECT SW={sw.hex().upper()}  DATA={r[:-2].hex().upper() if len(r)>2 else ''}")
-        return sw == b"\x90\x00"
+        # reconstruimos SELECT por si en algún punto cambias AID_BYTES
+        select_apdu = self._build_select_aid(AID_BYTES)
+        ok, response = self._enviar_apdu(select_apdu)
+        hex_resp = self._to_hex(response)
+        data, sw = self._strip_sw(response)
+        is_ok = ok and (response == b"\x90\x00" or sw == b"\x90\x00")
+        logger.info(f"Respuesta SELECT AID (hex): {hex_resp} (ok={is_ok})")
+        return is_ok
 
+    # --- Ajustes para CTOK con SW opcional ---
     def _parsear_respuesta_celular(self, back_bytes):
         if not back_bytes:
-            return []
+            return [], b""
+        data, sw = self._strip_sw(back_bytes)
         try:
-            texto = back_bytes.decode("utf-8", errors="replace").strip()  # descarta SW
+            texto = data.decode("utf-8", errors="strict").strip()
         except Exception:
             try:
-                texto = back_bytes.decode("latin-1", errors="replace").strip()
+                texto = data.decode("latin-1", errors="replace").strip()
             except Exception:
-                return []
+                return [], sw
         partes = [p.strip() for p in texto.split(",")]
-        return partes
+        return partes, sw
 
     def _validar_trama_ct(self, partes, folio_venta_digital):
         try:
+            # Esperado: CT,OK,<id_monedero>,<no_tx>,<saldo_post>,<aforoId>
             if len(partes) < 6 or partes[0] != "CT":
-                logger.error("Trama CT inválida")
+                logger.error("Trama CT inválida (cabecera/longitud)")
                 return None
+            if partes[1] != "OK":
+                logger.warning(f"CT con estado no OK: {partes[1]}")
+                return None
+            # El campo 5 debe coincidir con el folio_venta_digital (tu lógica actual)
             if partes[5] != str(folio_venta_digital):
-                logger.warning(f"Folio de venta digital no coincide: {partes[5]} != {folio_venta_digital}")
+                logger.warning(f"Folio/aforo no coincide: {partes[5]} != {folio_venta_digital}")
                 return None
             try:
                 id_monedero = int(partes[2])
@@ -268,7 +460,7 @@ class HCEWorker(QThread):
             if self.precio <= 0:
                 return None
             return {
-                "estado": partes[1],
+                "estado": "OK",
                 "id_monedero": id_monedero,
                 "no_transaccion": no_transaccion,
                 "saldo_posterior": saldo_posterior,
@@ -276,7 +468,7 @@ class HCEWorker(QThread):
         except Exception as e:
             logger.error(f"Error al validar la trama CT: {e}")
             return None
-
+        
     def run(self):
         if not self.running:
             return
@@ -296,7 +488,7 @@ class HCEWorker(QThread):
                             time.sleep(0.5)
                         self.contador_sin_dispositivo = 0
                         continue
-
+                    
                     ultimo = obtener_ultimo_folio_de_venta_digital() or (None, 0)
                     folio_venta_digital = (ultimo[1] if isinstance(ultimo, (list, tuple)) and len(ultimo) > 1 else 0) + 1
                     logger.info(f"Folio de venta digital asignado: {folio_venta_digital}")
@@ -305,7 +497,7 @@ class HCEWorker(QThread):
                     hora = strftime("%H:%M:%S")
                     servicio_cfg = self.settings.value('servicio', '') or ''
                     trama_txt = f"{vg.folio_asignacion},{folio_venta_digital},{self.precio},{hora},{servicio_cfg},{self.origen},{self.destino}"
-
+                    
                     logger.info("Esperando dispositivo HCE...")
                     if not self._detectar_dispositivo():
                         self.pago_fallido.emit("No se detectó celular")
@@ -313,9 +505,12 @@ class HCEWorker(QThread):
                         continue
 
                     logger.info("Dispositivo detectado")
+                    # SELECT robusto con recuperación
                     if not self._seleccionar_aid():
                         self.pago_fallido.emit("Error en intercambio de datos (SELECT AID)")
-                        continue
+                        # Intentar reenganche estilo hce_reader
+                        if not self._recover_session(AID_BYTES):
+                            continue
 
                     intento = 0
                     ok_tx = False
@@ -324,22 +519,47 @@ class HCEWorker(QThread):
                         trama_bytes = (trama_txt + "," + str(intento)).encode("utf-8")
                         logger.info(f"Trama a enviar: {trama_bytes}")
                         ok_tx, back = self._enviar_apdu(trama_bytes)
-                        if ok_tx:
-                            break
-                        self.pago_fallido.emit(
-                            "El celular no responde (TRAMA) - intento: "
-                            + str(intento) + "/" + str(HCE_REINTENTOS)
-                            + " - Respuesta: " + str(back)
-                        )
-                        logger.info(f"Reintentando envío de trama... intento {intento}/{HCE_REINTENTOS}")
-                        intento += 1
-                        time.sleep(HCE_REINTENTO_INTERVALO_S)
 
-                    if not ok_tx:
+                        # Si falló el intercambio o llegó vacío, intenta recuperación y reintenta sin subir intento
+                        if (not ok_tx) or (not back):
+                            self.pago_fallido.emit(
+                                "El celular no responde (TRAMA) - intento: "
+                                + str(intento) + "/" + str(HCE_REINTENTOS)
+                                + " - Respuesta: " + str(back)
+                            )
+                            logger.info("Intercambio falló o vacío. Recuperando sesión…")
+                            if self._recover_session(AID_BYTES):
+                                # tras recuperar, reintenta mismo intento
+                                time.sleep(HCE_REINTENTO_INTERVALO_S)
+                                continue
+                            # si no recupera, cuenta intento y sigue
+                            intento += 1
+                            time.sleep(HCE_REINTENTO_INTERVALO_S)
+                            continue
+
+                        # Tenemos bytes. Valida SW (si viene)
+                        _, sw = self._strip_sw(back)
+                        if sw not in (b"", b"\x90\x00"):
+                            logger.warning(f"SW no OK en respuesta de celular: {self._to_hex(sw)}. Recuperando…")
+                            if self._recover_session(AID_BYTES):
+                                # reintenta mismo intento
+                                time.sleep(HCE_REINTENTO_INTERVALO_S)
+                                continue
+                            intento += 1
+                            time.sleep(HCE_REINTENTO_INTERVALO_S)
+                            continue
+
+                        # OK: salimos del bucle de reintentos
+                        break
+
+                    if not ok_tx or not back:
                         self.pago_fallido.emit("Error al recibir respuesta del celular (TRAMA)")
                         continue
+                    
+                    partes, sw = self._parsear_respuesta_celular(back)
+                    if sw not in (b"", b"\x90\x00"):
+                        logger.warning(f"SW inesperado (no crítico): {self._to_hex(sw)}")
 
-                    partes = self._parsear_respuesta_celular(back)
                     logger.info(f"Respuesta celular (partes): {partes}")
                     datos = self._validar_trama_ct(partes, folio_venta_digital)
                     if not datos:
@@ -348,7 +568,9 @@ class HCEWorker(QThread):
 
                     if datos["estado"] == "ERR":
                         logger.warning("Celular reporta ERR en la respuesta CT.")
-
+                        self.pago_fallido.emit("Error reportado por el celular")
+                        continue
+                    
                     venta_guardada = guardar_venta_digital(
                         folio_venta_digital,
                         vg.folio_asignacion,
@@ -363,16 +585,16 @@ class HCEWorker(QThread):
                         datos["saldo_posterior"],
                         self.precio
                     )
-
+                    
                     if not venta_guardada:
                         logger.error("Error al guardar venta digital en base de datos.")
                         self._buzzer_error()
                         time.sleep(1.5)
                         continue
-
+                    
                     actualizar_estado_venta_digital_revisado("OK", folio_venta_digital, vg.folio_asignacion)
                     logger.info("Estado de venta actualizado a OK.")
-
+                    
                     time.sleep(1)
                     self._buzzer_ok()
                     self.pagados += 1
@@ -387,10 +609,10 @@ class HCEWorker(QThread):
                     self.mutex.lock()
                     self.cond.wait(self.mutex)
                     self.mutex.unlock()
-                    logger.info("El usuario dio OK, sigo con el flujo...")
+                    logger.info("El usuario dio OK, sigo con el flujo…")
                     time.sleep(1)
                     logger.info("Venta digital guardada y confirmada.")
-
+                        
                 except Exception as e:
                     logger.exception(f"Excepción en ciclo de cobro: {e}")
                     self.pago_fallido.emit(str(e))
@@ -405,14 +627,16 @@ class HCEWorker(QThread):
 
     def stop(self):
         self.running = False
+        # despierta posibles waits de QMessageBox/condición
         try:
             self.mutex.lock()
             self.cond.wakeAll()
             self.mutex.unlock()
         except Exception:
             pass
+        # termina el hilo
         try:
-            self.quit()
+            self.quit()  # inocuo si no usas event loop de QThread
             self.wait(1500)
         finally:
             try:
@@ -437,12 +661,12 @@ class VentanaPrepago(QMainWindow):
         self.origen = origen
         self.destino = destino
         self.settings = QSettings(SETTINGS_PATH, QSettings.IniFormat)
-
+        
         self.exito_pago = {'hecho': False, 'pagado_efectivo': False, 'folio': None, 'fecha': None, 'hora': None}
         self.pagados = 0
 
         uic.loadUi(UI_PATH, self)
-
+        
         self.btn_pagar_con_efectivo.clicked.connect(self.pagar_con_efectivo)
         self.label_tipo.setText(f"{self.tipo} - Precio: ${self.precio:.2f}")
 
@@ -455,7 +679,6 @@ class VentanaPrepago(QMainWindow):
 
         self.btn_cancelar.clicked.connect(self.cancelar_transaccion)
 
-        # Buzzer por si no se inicializó aún
         try:
             if not GPIO.getmode():
                 GPIO.setwarnings(False)
@@ -468,7 +691,10 @@ class VentanaPrepago(QMainWindow):
 
     def cancelar_transaccion(self):
         logger.info("Transacción HCE cancelada por el usuario.")
-        self.exito_pago = {'hecho': False, 'pagado_efectivo': False, 'folio': None, 'fecha': None, 'hora': None}
+        self.exito_pago = {
+            'hecho': False, 'pagado_efectivo': False,
+            'folio': None, 'fecha': None, 'hora': None
+        }
         if self.worker:
             try:
                 self.worker.stop()
@@ -480,32 +706,39 @@ class VentanaPrepago(QMainWindow):
 
     def pn532_hard_reset(self):
         try:
-            logger.info("Reset PN532 solicitado desde UI")
+            print("Hard reset PN532")
             with vg.pn532_lock:
-                if self.worker and getattr(self.worker, "nfc", None):
-                    self.worker.nfc.hard_reset()
+                GPIO.output(RSTPDN_PIN, GPIO.LOW)
+                time.sleep(0.4)
+                GPIO.output(RSTPDN_PIN, GPIO.HIGH)
+                time.sleep(0.6)
         except Exception as e:
             logger.error(f"Error al resetear el lector NFC: {e}")
-
+        
     def pagar_con_efectivo(self):
+        # marca salida por efectivo
         self.exito_pago = {'hecho': False, 'pagado_efectivo': True, 'folio': None, 'fecha': None, 'hora': None}
 
+        # 1) detén el worker si está corriendo (desbloquea cond y libera PN532)
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.worker = None
 
+        # 2) programa el cierre y reset fuera del slot, sin bloquear la UI
         QTimer.singleShot(0, self._finish_cash)
 
     def _finish_cash(self):
+        # reset NO bloqueante: intenta tomar el lock con timeout corto
         try:
             lock = getattr(vg, "pn532_lock", None)
             if lock and lock.acquire(timeout=0.2):
                 try:
-                    if self.worker and getattr(self.worker, "nfc", None):
-                        self.worker.nfc.hard_reset()
+                    GPIO.output(RSTPDN_PIN, GPIO.LOW); time.sleep(0.4)
+                    GPIO.output(RSTPDN_PIN, GPIO.HIGH); time.sleep(0.6)
                 finally:
                     lock.release()
             else:
+                # si no se pudo, pide reset diferido y deja que el lector lo haga
                 vg.pn532_reset_requested = True
         except Exception as e:
             logger.error(f"Reset PN532 diferido falló: {e}")
@@ -521,6 +754,7 @@ class VentanaPrepago(QMainWindow):
         return self.exito_pago
 
     def iniciar_hce(self):
+        # Pausa el lector concurrente
         vg.modo_nfcCard = False
 
         self.worker = HCEWorker(self.total_hce, self.precio, self.tipo_num, self.id_tarifa, self.geocerca, self.servicio, self.setting, self.origen, self.destino)
@@ -530,7 +764,7 @@ class VentanaPrepago(QMainWindow):
         self.worker.error_inicializacion.connect(self.error_inicializacion_nfc)
         self.worker.wait_for_ok.connect(self.mostrar_mensaje_exito_bloqueante)
         self.worker.start()
-
+        
     def error_inicializacion_nfc(self, mensaje):
         logger.warning(f"Error de inicialización: {mensaje}")
         self.label_info.setStyleSheet("color: red;")
@@ -545,7 +779,7 @@ class VentanaPrepago(QMainWindow):
         except Exception as e:
             logger.debug(f"No se pudo mostrar QMessageBox: {e}")
         QTimer.singleShot(1000, self.close)
-
+        
     def _actualizar_totales_settings(self, data: dict):
         try:
             setting_pasajero = data.get("setting_pasajero", "")

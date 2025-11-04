@@ -5,6 +5,9 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 
 Linea cronológica:
 
+- v3.62:
+  - Se volvio a lo que se tenia en la version 3.60.
+  - Se incorporo un nuevo archivo de prepago.py creado por Isais.
 - v3.61:
   - Se cambio la libreria de prepago de pn532pi a adafruit_pn532.
   - Se desactivo el uso de RPI.GPIO para el zumbador, ventilador y reset_reader.

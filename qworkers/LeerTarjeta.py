@@ -53,7 +53,7 @@ class LeerTarjetaWorker(QObject):
     try:
         GPIO.setmode(GPIO.BOARD)
         GPIO.setup(12, GPIO.OUT)  # zumbador
-        #GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)  # RST PN532 en alto
+        GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)  # RST PN532 en alto
     except Exception as e:
         print("\x1b[1;31;47m"+"No se pudo inicializar GPIO: "+str(e)+'\033[0;m')
         logging.info(e)
@@ -125,10 +125,10 @@ class LeerTarjetaWorker(QObject):
             t.start(); t.join(0.15)  # máx 150 ms
 
             # Reset físico SIEMPRE
-            # GPIO.output(RSTPDN_PIN, GPIO.LOW)
-            # time.sleep(0.40)   # >=100 ms en bajo
-            # GPIO.output(RSTPDN_PIN, GPIO.HIGH)
-            # time.sleep(0.60)   # arranque del chip
+            GPIO.output(RSTPDN_PIN, GPIO.LOW)
+            time.sleep(0.40)   # >=100 ms en bajo
+            GPIO.output(RSTPDN_PIN, GPIO.HIGH)
+            time.sleep(0.60)   # arranque del chip
         except Exception as e:
             print("\x1b[1;31;47m"+"Error al resetear el lector NFC: "+str(e)+'\033[0;m')
             logging.error(f"Error al resetear el lector NFC: {e}")
