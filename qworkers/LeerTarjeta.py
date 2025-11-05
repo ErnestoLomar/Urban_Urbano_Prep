@@ -11,13 +11,16 @@
 from PyQt5.QtCore import QObject, pyqtSignal, QSettings
 import time
 import ctypes
-import RPi.GPIO as GPIO
 import serial
 import logging
 from time import strftime
 from datetime import datetime, timedelta
 import subprocess
 import threading
+import atexit
+
+# Hub de GPIO (BCM)
+from gpio_hub import GPIOHub, PINMAP
 
 # Librerias propias
 from matrices_tarifarias import obtener_destino_de_servicios_directos, obtener_destino_de_transbordos
@@ -32,13 +35,21 @@ from queries import obtener_datos_aforo, insertar_estadisticas_boletera
 from tickets_usados import insertar_ticket_usado, verificar_ticket_completo, verificar_ticket
 import variables_globales as vg
 
-# -------------------- Pines y constantes de NFC --------------------
-# RSTO del PN532 (activo en bajo). Modo BOARD.
-RSTPDN_PIN = 13
-
-# Política de reset
+# -------------------- Política de reset NFC --------------------
 _NFC_MAX_FALLOS_CONSECUTIVOS = 3
 _NFC_RESET_COOLDOWN_S = 10.0
+
+# -------------------- Hub GPIO compartido ----------------------
+HUB = GPIOHub(PINMAP)
+
+def _cleanup_gpio():
+    try:
+        HUB.safe_state()
+    finally:
+        HUB.close()
+
+atexit.register(_cleanup_gpio)
+
 
 class LeerTarjetaWorker(QObject):
 
@@ -49,23 +60,23 @@ class LeerTarjetaWorker(QObject):
         print(e)
         logging.info(e)
 
-    # Init GPIO básicos
-    try:
-        GPIO.setmode(GPIO.BOARD)
-        GPIO.setup(12, GPIO.OUT)  # zumbador
-        GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)  # RST PN532 en alto
-    except Exception as e:
-        print("\x1b[1;31;47m"+"No se pudo inicializar GPIO: "+str(e)+'\033[0;m')
-        logging.info(e)
-
     def __init__(self):
         super().__init__()
         self.ultimo_qr = ""
         self.ser = any
+        self.hub = HUB
 
         # Estado de control NFC
         self._nfc_fallos = 0
         self._nfc_ultimo_reset_ts = 0.0
+
+        # Estados de reposo explícitos (PINMAP ya los fija)
+        try:
+            self.hub.write("buzzer", False)
+            self.hub.write("nfc_rst", False)  # active_high=False -> HIGH físico en reposo
+        except Exception as e:
+            print("\x1b[1;31;47m"+"No se pudo inicializar GPIO via hub: "+str(e)+'\033[0;m')
+            logging.info(e)
 
         # Puerto QR
         try:
@@ -109,7 +120,7 @@ class LeerTarjetaWorker(QObject):
 
     # -------------------- Utilitarios NFC --------------------
     def pn532_hard_reset(self):
-        """Reset físico del PN532; intenta cerrar la lib rápido, pero nunca se cuelga."""
+        """Reset físico del PN532; activo en LOW."""
         try:
             print("\x1b[1;32m"+"Hard reset PN532"+'\033[0;m')
 
@@ -124,10 +135,8 @@ class LeerTarjetaWorker(QObject):
             t = threading.Thread(target=_try_close, daemon=True)
             t.start(); t.join(0.15)  # máx 150 ms
 
-            # Reset físico SIEMPRE
-            GPIO.output(RSTPDN_PIN, GPIO.LOW)
-            time.sleep(0.40)   # >=100 ms en bajo
-            GPIO.output(RSTPDN_PIN, GPIO.HIGH)
+            # Pulso LOW físico usando el hub (active_high=False ⇒ True lógico = LOW físico)
+            self.hub.pulse("nfc_rst", 400)  # ≥100 ms en bajo
             time.sleep(0.60)   # arranque del chip
         except Exception as e:
             print("\x1b[1;31;47m"+"Error al resetear el lector NFC: "+str(e)+'\033[0;m')
@@ -187,7 +196,6 @@ class LeerTarjetaWorker(QObject):
             next_poll = 0.0
             poll_interval = 0.10  # 100 ms ≈ 10 Hz
             while True:
-                #print("\x1b[1;32m"+"Loop principal"+'\033[0;m')
                 now = time.monotonic()
                 if now < next_poll:
                     time.sleep(0.01)
@@ -276,43 +284,32 @@ class LeerTarjetaWorker(QObject):
                                                     self.settings.setValue('nombre_de_operador_inicio', f"{datos_completos_tarjeta[17:41].replace('*',' ').replace('.',' ').replace('-',' ').replace('_',' ')}")
                                             vg.csn_chofer_respaldo = csn
                                             self.progress.emit(csn)
-                                            GPIO.output(12, True);  time.sleep(0.1)
-                                            GPIO.output(12, False); time.sleep(0.1)
-                                            GPIO.output(12, True);  time.sleep(0.1)
-                                            GPIO.output(12, False)
+                                            self.hub.buzzer_blinks(2, on_ms=100, off_ms=100)
                                         else:
                                             GUI = VentanaEmergente("TARJETAINVALIDA", "")
                                             GUI.show()
-                                            for i in range(5):
-                                                GPIO.output(12, True);  time.sleep(0.055)
-                                                GPIO.output(12, False); time.sleep(0.055)
+                                            self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                             time.sleep(2)
                                             GUI.close()
                                     else:
                                         insertar_estadisticas_boletera(str(self.idUnidad), fecha, hora, "SV", f"{csn}")
                                         GUI = VentanaEmergente("FUERADEVIGENCIA", "")
                                         GUI.show()
-                                        for i in range(5):
-                                            GPIO.output(12, True);  time.sleep(0.055)
-                                            GPIO.output(12, False); time.sleep(0.055)
+                                        self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                         time.sleep(2)
                                         GUI.close()
                                 else:
                                     insertar_estadisticas_boletera(str(self.idUnidad), fecha, hora, "TI", f"{csn},{vigenciaTarjeta}")
                                     GUI = VentanaEmergente("TARJETAINVALIDA", "")
                                     GUI.show()
-                                    for i in range(5):
-                                        GPIO.output(12, True);  time.sleep(0.055)
-                                        GPIO.output(12, False); time.sleep(0.055)
+                                    self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                     time.sleep(2)
                                     GUI.close()
                             else:
                                 insertar_estadisticas_boletera(str(self.idUnidad), fecha, hora, "TD", f"{csn},{tipo}")
                                 GUI = VentanaEmergente("TARJETAINVALIDA", "")
                                 GUI.show()
-                                for i in range(5):
-                                    GPIO.output(12, True);  time.sleep(0.055)
-                                    GPIO.output(12, False); time.sleep(0.055)
+                                self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                 time.sleep(2)
                                 GUI.close()
                         except Exception as e:
@@ -339,9 +336,7 @@ class LeerTarjetaWorker(QObject):
 
                             if str(self.settings.value('folio_de_viaje')) == "":
                                 print("No hay ningún viaje activo")
-                                for i in range(5):
-                                    GPIO.output(12, True); time.sleep(0.055)
-                                    GPIO.output(12, False); time.sleep(0.055)
+                                self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                 time.sleep(1)
                                 continue
 
@@ -349,9 +344,7 @@ class LeerTarjetaWorker(QObject):
                                 print("El ultimo QR se vuelve a pasar")
                                 GUI = VentanaEmergente("UTILIZADO", ".....")
                                 GUI.show()
-                                for i in range(5):
-                                    GPIO.output(12, True); time.sleep(0.055)
-                                    GPIO.output(12, False); time.sleep(0.055)
+                                self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                 time.sleep(4.5)
                                 GUI.close()
                                 continue
@@ -366,9 +359,7 @@ class LeerTarjetaWorker(QObject):
                                     print("El QR digital no es válido")
                                     GUI = VentanaEmergente("INVALIDO", "")
                                     GUI.show()
-                                    for i in range(5):
-                                        GPIO.output(12, True); time.sleep(0.055)
-                                        GPIO.output(12, False); time.sleep(0.055)
+                                    self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                     time.sleep(4.5)
                                     GUI.close()
                                     continue
@@ -382,9 +373,7 @@ class LeerTarjetaWorker(QObject):
                                     print("La fecha del QR no es la actual")
                                     GUI = VentanaEmergente("CADUCO", "Fecha diferente")
                                     GUI.show()
-                                    for i in range(5):
-                                        GPIO.output(12, True); time.sleep(0.055)
-                                        GPIO.output(12, False); time.sleep(0.055)
+                                    self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                     time.sleep(4.5)
                                     GUI.close()
                                     continue
@@ -404,9 +393,7 @@ class LeerTarjetaWorker(QObject):
                                     print("No se encuentra en la geocerca declarada en el QR")
                                     GUI = VentanaEmergente("EQUIVOCADO", str(origen))
                                     GUI.show()
-                                    for i in range(5):
-                                        GPIO.output(12, True); time.sleep(0.055)
-                                        GPIO.output(12, False); time.sleep(0.055)
+                                    self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                     time.sleep(4.5)
                                     GUI.close()
                                     continue
@@ -417,9 +404,7 @@ class LeerTarjetaWorker(QObject):
                                     print("El QR ya fue usado")
                                     GUI = VentanaEmergente("UTILIZADO", ".....")
                                     GUI.show()
-                                    for i in range(5):
-                                        GPIO.output(12, True); time.sleep(0.055)
-                                        GPIO.output(12, False); time.sleep(0.055)
+                                    self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                     time.sleep(4.5)
                                     GUI.close()
                                     continue
@@ -495,9 +480,7 @@ class LeerTarjetaWorker(QObject):
                                     time.sleep(5)
                                     GUI.close()
                                 else:
-                                    for i in range(5):
-                                        GPIO.output(12, True); time.sleep(0.055)
-                                        GPIO.output(12, False); time.sleep(0.055)
+                                    self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                     time.sleep(0.5)
                                 continue  # fin de flujo PD
 
@@ -506,9 +489,7 @@ class LeerTarjetaWorker(QObject):
                                 print("El QR no es válido")
                                 GUI = VentanaEmergente("INVALIDO", "")
                                 GUI.show()
-                                for i in range(5):
-                                    GPIO.output(12, True); time.sleep(0.055)
-                                    GPIO.output(12, False); time.sleep(0.055)
+                                self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                 time.sleep(4.5)
                                 GUI.close()
                                 continue
@@ -520,9 +501,7 @@ class LeerTarjetaWorker(QObject):
                                 print("La fecha del QR no es la actual")
                                 GUI = VentanaEmergente("CADUCO", "Fecha diferente")
                                 GUI.show()
-                                for i in range(5):
-                                    GPIO.output(12, True); time.sleep(0.055)
-                                    GPIO.output(12, False); time.sleep(0.055)
+                                self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                 time.sleep(4.5)
                                 GUI.close()
                                 continue
@@ -533,9 +512,7 @@ class LeerTarjetaWorker(QObject):
                                 print("El QR ya caducó")
                                 GUI = VentanaEmergente("CADUCO", str(hora_caduca))
                                 GUI.show()
-                                for i in range(5):
-                                    GPIO.output(12, True); time.sleep(0.055)
-                                    GPIO.output(12, False); time.sleep(0.055)
+                                self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                 time.sleep(4.5)
                                 GUI.close()
                                 continue
@@ -578,9 +555,7 @@ class LeerTarjetaWorker(QObject):
                                     destino_esperado = f"{qr_list[8]} o {qr_list[9]}" if len(qr_list) > 9 else str(qr_list[8])
                                     GUI = VentanaEmergente("EQUIVOCADO", destino_esperado)
                                 GUI.show()
-                                for i in range(5):
-                                    GPIO.output(12, True); time.sleep(0.055)
-                                    GPIO.output(12, False); time.sleep(0.055)
+                                self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                 time.sleep(4.5)
                                 GUI.close()
                                 continue
@@ -591,9 +566,7 @@ class LeerTarjetaWorker(QObject):
                                 print("El QR ya fue usado")
                                 GUI = VentanaEmergente("UTILIZADO", ".....")
                                 GUI.show()
-                                for i in range(5):
-                                    GPIO.output(12, True); time.sleep(0.055)
-                                    GPIO.output(12, False); time.sleep(0.055)
+                                self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                 time.sleep(4.5)
                                 GUI.close()
                                 continue
@@ -664,9 +637,7 @@ class LeerTarjetaWorker(QObject):
                                 time.sleep(5)
                                 GUI.close()
                             else:
-                                for i in range(5):
-                                    GPIO.output(12, True); time.sleep(0.055)
-                                    GPIO.output(12, False); time.sleep(0.055)
+                                self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                                 time.sleep(0.5)
 
                         except Exception as e:

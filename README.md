@@ -5,6 +5,9 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 
 Linea cronológica:
 
+- v3.63:
+  - Se creo un hub_gpio.py para controlar el zumbador, ventilador y reset_reader.
+  - Se volvio a agregar la libreriaadafruit_pn532.
 - v3.62:
   - Se volvio a lo que se tenia en la version 3.60.
   - Se incorporo un nuevo archivo de prepago.py creado por Isais.

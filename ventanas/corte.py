@@ -7,7 +7,7 @@
 #
 ##########################################
 
-#Librerías externas
+# Librerías externas
 from PyQt5 import uic
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -15,36 +15,46 @@ from PyQt5.QtWidgets import *
 from time import strftime
 import logging
 import time
-import RPi.GPIO as GPIO
 
-#Librerías propias
+# Hub GPIO (BCM)
+from gpio_hub import GPIOHub, PINMAP
+
+# Librerías propias
 import variables_globales as variables_globales
 from variables_globales import VentanaActual
 from enviar_vuelta import EnviarVuelta
 from queries import obtener_datos_aforo
 from asignaciones_queries import guardar_estado_del_viaje
-from ventas_queries import obtener_ultimo_folio_de_item_venta, obtener_total_de_ventas_por_folioviaje, obtener_total_de_efectivo_por_folioviaje, obtener_total_de_aforos_digitales_por_folioviaje, obtener_total_saldo_digital_por_folioviaje, obtener_ultimo_folio_de_venta_digital
+from ventas_queries import (
+    obtener_ultimo_folio_de_item_venta,
+    obtener_total_de_ventas_por_folioviaje,
+    obtener_total_de_efectivo_por_folioviaje,
+    obtener_total_de_aforos_digitales_por_folioviaje,
+    obtener_total_saldo_digital_por_folioviaje,
+    obtener_ultimo_folio_de_venta_digital
+)
 
+# Instancia del hub
 try:
-    GPIO.setmode(GPIO.BOARD)
-    GPIO.setup(12, GPIO.OUT)
+    HUB = GPIOHub(PINMAP)
 except Exception as e:
-    print("No se pudo inicializar el zumbador: "+str(e))
+    print("No se pudo inicializar GPIOHub: " + str(e))
+    logging.info(e)
 
 class corte(QWidget):
 
     close_signal = pyqtSignal()
     close_signal_pasaje = pyqtSignal()
-    
-    def __init__(self,close_signal_para_enviar_vuelta):
+
+    def __init__(self, close_signal_para_enviar_vuelta):
         super().__init__()
         try:
             uic.loadUi("/home/pi/Urban_Urbano/ui/corte_copia.ui", self)
 
-            #Creamos nuestras variables para el control del corte.
+            # Variables para el control del corte.
             self.close_signal_vuelta = close_signal_para_enviar_vuelta
 
-            #Realizamos configuración de la ventana corte.
+            # Configuración de la ventana corte.
             self.setGeometry(0, 0, 800, 440)
             self.setWindowFlags(Qt.FramelessWindowHint)
             self.close_signal_vuelta.connect(self.close_me)
@@ -54,7 +64,7 @@ class corte(QWidget):
         except Exception as e:
             logging.info(f"Error en la ventana corte: {e}")
 
-    #Función para inicializar la ventana corte.
+    # Función para inicializar la ventana corte.
     def inicializar(self):
         try:
             self.label_fin.mousePressEvent = lambda event: self.terminar_vuelta(event, True)
@@ -65,17 +75,17 @@ class corte(QWidget):
     def cargar_datos(self):
         try:
             self.settings.setValue('ventana_actual', "corte")
-            #variables_globales.ventana_actual = "corte"
-            self.label_head.setText(f"{self.idUnidad} {str(self.settings.value('servicio')[6:])}") # Obneter todos los datos del servicio, etc, desde el archivo de settings.
+            # variables_globales.ventana_actual = "corte"
+            self.label_head.setText(f"{self.idUnidad} {str(self.settings.value('servicio')[6:])}")  # Datos del servicio
 
-            # Se muestra el folio de viaje
+            # Folio de viaje
             self.label_folio_viaje.setText(str(self.settings.value('folio_de_viaje') or variables_globales.folio_asignacion))
 
-            # Se muestra el vuelta
+            # Vuelta
             self.label_vuelta.setText(f"Vuelta {str(self.settings.value('vuelta'))}")
 
             try:
-                # Obtenemos el nombre del operador y lo mostramos en la pantalla
+                # Nombre del operador
                 if len(variables_globales.nombre_de_operador_inicio) > 0:
                     self.label_operador.setText("Operador: " + variables_globales.nombre_de_operador_inicio)
                 else:
@@ -88,21 +98,20 @@ class corte(QWidget):
                 print("Error al obtener el nombre del operador: "+str(e))
                 logging.info("Error al obtener el nombre del operador: "+str(e))
 
-            # Se muestra la version del software
+            # Versión software
             self.label_version_software.setText(variables_globales.version_del_software)
 
             try:
-                # Obtener ultimos folios de venta efectivo y digital
+                # Últimos folios (efectivo/digital)
                 folio_ultimo_efectivo = obtener_ultimo_folio_de_item_venta()[1]
                 folio_ultimo_digital = obtener_ultimo_folio_de_venta_digital()[1]
-                
-                # Mostrar folios en la pantalla
+
                 self.label_ultimo_folio_efectivo.setText("Ultimo folio venta efectivo: "+str(folio_ultimo_efectivo))
                 self.label_ultimo_folio_digital.setText("Ultimo folio venta digital: "+str(folio_ultimo_digital))
             except Exception as e:
                 print("Error al obtener los ultimos folios de venta: "+str(e))
                 logging.info("Error al obtener los ultimos folios de venta: "+str(e))
-            
+
             # EFECTIVO
             self.label_cantidad_boletos_estud.setText(f"{str(self.settings.value('info_estudiantes')).split(',')[0]}")
             self.label_total_cobro_estud.setText(f"{str(self.settings.value('info_estudiantes')).split(',')[1]}")
@@ -115,11 +124,11 @@ class corte(QWidget):
 
             self.label_cantidad_boletos_admayor.setText(f"{str(self.settings.value('info_ad_mayores')).split(',')[0]}")
             self.label_total_cobro_admayor.setText(f"{str(self.settings.value('info_ad_mayores')).split(',')[1]}")
-            
+
             self.label_cantidad_total_boletos_efectivo.setText(f"{str(self.settings.value('total_de_folios_efectivo'))}")
             self.label_total_cobro_efectivo.setText(f"{str(self.settings.value('total_a_liquidar_efectivo'))}")
-            
-            #DIGITAL
+
+            # DIGITAL
             self.label_cantidad_boletos_estud_digital.setText(f"{str(self.settings.value('info_estudiantes_digital')).split(',')[0]}")
             self.label_total_cobro_estud_digital.setText(f"{str(self.settings.value('info_estudiantes_digital')).split(',')[1]}")
 
@@ -131,23 +140,21 @@ class corte(QWidget):
 
             self.label_cantidad_boletos_admayor_digital.setText(f"{str(self.settings.value('info_ad_mayores_digital')).split(',')[0]}")
             self.label_total_cobro_admayor_digital.setText(f"{str(self.settings.value('info_ad_mayores_digital')).split(',')[1]}")
-            
+
             self.label_cantidad_total_boletos_digital.setText(f"{str(self.settings.value('total_de_folios_digital'))}")
             self.label_total_cobro_digital.setText(f"{str(self.settings.value('total_a_liquidar_digital'))}")
-            
+
             print("Total a liquidar efectivo: ", self.settings.value('total_a_liquidar_efectivo'))
             print("Total a liquidar digital: ", self.settings.value('total_a_liquidar_digital'))
-            
+
             total_a_liquidar = int(float(self.settings.value('total_a_liquidar_efectivo'))) + int(float(self.settings.value('total_a_liquidar_digital')))
-            
             print("Total a liquidar: ", total_a_liquidar)
-            
             self.label_total_a_liquidar.setText(f"{total_a_liquidar}")
         except Exception as e:
             print(e)
             logging.info(f"Error en la ventana corte: {e}")
 
-    #Función para cerrar la ventana de corte.
+    # Función para cerrar la ventana de corte.
     def terminar_vuelta(self, event, imprimir):
         try:
             print("El imprimir mandado es: ", imprimir)
@@ -261,14 +268,14 @@ class corte(QWidget):
         except Exception as e:
             print(f"Error en la ventana corte: {e}")
             logging.info(f"Error en la ventana corte: {e}")
-            for i in range(5):
-                GPIO.output(12, True)
-                time.sleep(0.055)
-                GPIO.output(12, False)
-                time.sleep(0.055)
+            # Antes: parpadeo manual en BOARD 12; ahora usamos el hub
+            try:
+                HUB.buzzer_blinks(5, on_ms=55, off_ms=55)
+            except Exception as be:
+                logging.info(f"No se pudo accionar buzzer via hub: {be}")
             time.sleep(0.5)
 
-    #Función para cancelar el corte.
+    # Función para cancelar el corte.
     def cancelar(self, event):
         try:
             self.settings.setValue('csn_chofer_dos', "")
@@ -280,8 +287,8 @@ class corte(QWidget):
             self.close()
         except Exception as e:
             logging.info(f"Error en la ventana corte: {e}")
-    
-    #Función para cerrar la ventana de corte.
+
+    # Función para cerrar la ventana de corte.
     def close_me(self):
         try:
             self.close()

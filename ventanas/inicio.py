@@ -7,19 +7,18 @@
 #
 ##########################################
 
-#Librerías externas
+# Librerías externas
 import sys
 import os
 from PyQt5 import uic
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
-import sys
-import os
 import subprocess
 from time import strftime
 import faulthandler
 import logging
+import time
 
 # Importar subdirectorios
 sys.path.insert(1, '/home/pi/Urban_Urbano/db')
@@ -27,7 +26,10 @@ sys.path.insert(1, '/home/pi/Urban_Urbano/utils')
 sys.path.insert(1, '/home/pi/Urban_Urbano/minicom')
 sys.path.insert(1, '/home/pi/Urban_Urbano/qworkers')
 
-#Librerías propias
+# Hub GPIO (BCM)
+from gpio_hub import GPIOHub, PINMAP
+
+# Librerías propias
 from chofer import VentanaChofer
 from eeprom_num_serie import cargar_num_serie
 from comand import Principal_Modem
@@ -38,32 +40,40 @@ from LeerMinicom import LeerMinicomWorker
 from LeerTarjeta import LeerTarjetaWorker
 from ActualizarIconos import ActualizarIconosWorker
 from servicios import Rutas
-from queries import obtener_datos_aforo, insertar_aforo, insertar_estadisticas_boletera, actualizar_socket
+from queries import (
+    obtener_datos_aforo,
+    insertar_aforo,
+    insertar_estadisticas_boletera,
+    actualizar_socket,
+)
 from enviar_vuelta import EnviarVuelta
-import RPi.GPIO as GPIO, time
 
-RSTPDN_PIN = 13
-# Asegura GPIO inicializado
+# Instancia global del HUB
 try:
-    GPIO.setmode(GPIO.BOARD)
-    GPIO.setup(RSTPDN_PIN, GPIO.OUT, initial=GPIO.HIGH)
-    print("GPIO inicializado.")
+    HUB = GPIOHub(PINMAP)
+    print("GPIOHub inicializado.")
 except Exception as e:
-    print("Error al inicializar el GPIO RSTPDN_PIN: " + str(e))
+    print("Error al inicializar GPIOHub: " + str(e))
 
+# Carpeta de logs
 if not os.path.exists("/home/pi/Urban_Urbano/logs"):
     os.makedirs("/home/pi/Urban_Urbano/logs")
 
+# Logging
 try:
     FORMAT = '%(asctime)s %(message)s'
     nombre_log = str(strftime("%Y_%m_%d_%H%_M_%S")) + '.log'
-    logging.basicConfig(format=FORMAT, filename='/home/pi/Urban_Urbano/logs/' + nombre_log, filemode='w', level="INFO")
-    #Creamos el Logger para generar un log de procedimientos
+    logging.basicConfig(
+        format=FORMAT,
+        filename='/home/pi/Urban_Urbano/logs/' + nombre_log,
+        filemode='w',
+        level="INFO"
+    )
     faulthandler.enable()
 except Exception as e:
     print("Error al crear el log: " + str(e))
 
-#Se instancia un objeto de la clase Principal_Modem
+# Se instancia un objeto de la clase Principal_Modem
 try:
     modem = Principal_Modem()
 except Exception as e:
@@ -73,22 +83,21 @@ except Exception as e:
 class Ventana(QWidget):
 
     def __init__(self):
-        
         super(Ventana, self).__init__()
         try:
-            #Realizamos configuración de la ventana principal
+            # Config ventana principal
             self.setGeometry(0, 0, 800, 480)
             self.setWindowFlags(Qt.FramelessWindowHint)
             uic.loadUi("/home/pi/Urban_Urbano/ui/inicio.ui", self)
-            self.settings = QSettings('/home/pi/Urban_Urbano/ventanas/settings.ini', QSettings.IniFormat) #Cargamos el archivo de configuración
-            crear_tablas() #Creamos las tablas de la base de datos
+            self.settings = QSettings('/home/pi/Urban_Urbano/ventanas/settings.ini', QSettings.IniFormat)  # Cfg
+            crear_tablas()  # DB tables
             self.unidad = obtener_datos_aforo()
             try:
                 self.label_unidad.setText(str(self.unidad[1]))
                 self.label_socket.setText(str(self.unidad[2]))
             except Exception as e:
                 logging.info('No se pudo cargar el aforo, lo añadimos manualmente')
-                insertar_aforo(1,21000,8150,0.0, False, 0.0)
+                insertar_aforo(1, 21000, 8150, 0.0, False, 0.0)
                 self.label_unidad.setText(str(self.unidad[1]))
             self.label_ser_pc.hide()
             self.label_5.hide()
@@ -96,20 +105,21 @@ class Ventana(QWidget):
             self.label_datos_cantidad.hide()
             self.label_version_software.setText(variables_globales.version_del_software)
 
-            #Declaramos variables
+            # Variables
             self.registrar_usuario = any
             self.hora_actualizada = False
             self.bandera_gps = False
 
-            #Cargamos el numero de serie y version de la tablilla
+            # Número de serie y versión de tablilla
             respuesta = cargar_num_serie()
             self.label_num_ser.setText(respuesta['state_num_serie'])
             self.label_num_ver.setText(respuesta['state_num_version'])
 
             self.inicializar()
-            
+
             actualizar_socket(8211)
-            
+
+            # Brillo (opcional)
             try:
                 from rpi_backlight import Backlight
                 self.backlight = Backlight()
@@ -119,13 +129,11 @@ class Ventana(QWidget):
                 print("Ocurrió algo al ejecutar la herramienta de brillo: ", e)
                 self.backlight = None
                 self.Brillo.hide()
-            #Creamos instancias de ventanas
-            
-            #Creamos los hilos
-            self.runLeerMinicom() #Hilo para leer minicom
-            self.runLeerTarjeta() #Hilo para leer tarjeta
-            self.runActualizarIconos() #Hilo para actualizar iconos
-            #self.runDeteccionGeocercas()
+
+            # Hilos
+            self.runLeerMinicom()        # Hilo minicom
+            self.runLeerTarjeta()        # Hilo tarjeta
+            self.runActualizarIconos()   # Hilo iconos
         except Exception as e:
             logging.info("Error al iniciar la ventana principal: " + str(e))
             print("Error al iniciar la ventana principal: " + str(e))
@@ -140,26 +148,25 @@ class Ventana(QWidget):
             turno = self.settings.value('turno')
             geocerca = self.settings.value('geocerca')
             folio_de_viaje = self.settings.value('folio_de_viaje')
-            
+
             nombre_de_operador_inicio = self.settings.value('nombre_de_operador_inicio')
             numero_de_operador_inicio = self.settings.value('numero_de_operador_inicio')
             nombre_de_operador_final = self.settings.value('nombre_de_operador_final')
             numero_de_operador_final = self.settings.value('numero_de_operador_final')
-            
+
             fecha = strftime('%Y/%m/%d').replace('/', '')[2:]
-            
+
             fecha_actual = str(subprocess.run("date", stdout=subprocess.PIPE, shell=True))
             indice = fecha_actual.find(":")
-            hora = str(fecha_actual[(int(indice) - 2):(int(indice) + 6)]).replace(":","")
-                                
+            hora = str(fecha_actual[(int(indice) - 2):(int(indice) + 6)]).replace(":", "")
+
             if ventana_actual is not None and ventana_actual != str(""):
-                
                 if self.isVisible() == False:
-                        print("La ventana principal no está visible")
-                        self.setVisible(True) 
-                        self.show()
-                        self.activateWindow()
-                
+                    print("La ventana principal no está visible")
+                    self.setVisible(True)
+                    self.show()
+                    self.activateWindow()
+
                 if ventana_actual == str("chofer"):
                     logging.info('Se debería de abrir la Ventana de chofer')
                     self.settings.setValue('ventana_actual', "")
@@ -169,10 +176,7 @@ class Ventana(QWidget):
                     else:
                         insertar_estadisticas_boletera(str(self.unidad[1]), fecha, hora, "ElegirServicio", f"SINCSN")
                     self.settings.setValue('csn_chofer', "")
-                    #variables_globales.csn_chofer = csn_chofer
-                    #self.ventana_servicio = VentanaChofer(AbrirVentanas.cerrar_vuelta.close_signal, AbrirVentanas.cerrar_vuelta.close_signal_pasaje)
-                    #self.ventana_servicio.show()
-                    #self.ventana_servicio.activateWindow()
+
                 elif ventana_actual == 'servicios_transbordos':
                     logging.info('Se abrirá Ventana de servicios_transbordos')
                     if len(str(csn_chofer)) > 0:
@@ -180,12 +184,12 @@ class Ventana(QWidget):
                         insertar_estadisticas_boletera(str(self.unidad[1]), fecha, hora, "DentroServicio", f"{csn_chofer}")
                     else:
                         insertar_estadisticas_boletera(str(self.unidad[1]), fecha, hora, "DentroServicio", f"SINCSN")
-                    
+
                     variables_globales.numero_de_operador_inicio = numero_de_operador_inicio
                     variables_globales.nombre_de_operador_inicio = nombre_de_operador_inicio
                     variables_globales.numero_de_operador_final = numero_de_operador_final
                     variables_globales.nombre_de_operador_final = nombre_de_operador_final
-                    
+
                     variables_globales.vuelta = vuelta
                     variables_globales.servicio = servicio
                     variables_globales.pension = pension
@@ -195,35 +199,31 @@ class Ventana(QWidget):
                     self.rutas = Rutas(turno, servicio, AbrirVentanas.cerrar_vuelta.close_signal, AbrirVentanas.cerrar_vuelta.close_signal_pasaje)
                     self.rutas.setGeometry(0, 0, 800, 440)
                     self.rutas.setWindowFlags(Qt.FramelessWindowHint)
-                    self.rutas.show() 
-                    #self.rutas.activateWindow()
-                    
+                    self.rutas.show()
+
                 elif ventana_actual == str("corte"):
-                    
                     variables_globales.numero_de_operador_inicio = numero_de_operador_inicio
                     variables_globales.nombre_de_operador_inicio = nombre_de_operador_inicio
                     variables_globales.numero_de_operador_final = numero_de_operador_final
                     variables_globales.nombre_de_operador_final = nombre_de_operador_final
-                    
+
                     variables_globales.vuelta = vuelta
                     variables_globales.servicio = servicio
                     variables_globales.pension = pension
                     variables_globales.csn_chofer = csn_chofer
                     variables_globales.geocerca = geocerca
                     variables_globales.folio_asignacion = folio_de_viaje
-                    # Cuando es la ventana de corte, debemos abrir la ventana de servicio y la de corte
-                    #Abrimos ventana de servicios
+
                     logging.info('Se abrirá Ventana de servicios_transbordos')
                     self.rutas = Rutas(turno, servicio, AbrirVentanas.cerrar_vuelta.close_signal, AbrirVentanas.cerrar_vuelta.close_signal_pasaje)
                     self.rutas.setGeometry(0, 0, 800, 440)
                     self.rutas.setWindowFlags(Qt.FramelessWindowHint)
-                    self.rutas.show() 
-                    ##################################################
-                    #Abrimos ventana de corte
+                    self.rutas.show()
+
                     logging.info('Se abrirá Ventana de Corte')
                     AbrirVentanas.cerrar_vuelta.cargar_datos()
                     AbrirVentanas.cerrar_vuelta.show()
-                    #AbrirVentanas.cerrar_vuelta.activateWindow()
+
                 elif ventana_actual == str("enviar_vuelta"):
                     variables_globales.vuelta = vuelta
                     variables_globales.servicio = servicio
@@ -234,7 +234,7 @@ class Ventana(QWidget):
                     logging.info('Se abrirá Ventana de enviar vuelta')
                     self.enviar_vualta = EnviarVuelta(AbrirVentanas.cerrar_turno.close_signal)
                     self.enviar_vualta.show()
-                    #enviar_vualta.activateWindow()
+
                 elif ventana_actual == str("cerrar_turno"):
                     variables_globales.vuelta = vuelta
                     variables_globales.servicio = servicio
@@ -242,19 +242,16 @@ class Ventana(QWidget):
                     variables_globales.csn_chofer = csn_chofer
                     variables_globales.geocerca = geocerca
                     variables_globales.folio_asignacion = folio_de_viaje
-                    #En este caso, debemos abrir la ventana de enviar_vuelta y la de cerrar turno
-                    #Abrimos ventana de enviar vuelta
+
                     logging.info('Se abrirá Ventana de enviar vuelta')
                     self.enviar_vualta = EnviarVuelta(AbrirVentanas.cerrar_turno.close_signal)
-                    self.enviar_vualta.show()  
-                    ##################################################
-                    #Abrimos ventana de cerrar turno
+                    self.enviar_vualta.show()
+
                     logging.info('Se abrirá Ventana de Cerrar Turno')
                     AbrirVentanas.cerrar_turno.cargar_datos()
                     AbrirVentanas.cerrar_turno.show()
-                    #AbrirVentanas.cerrar_turno.activateWindow()
                 else:
-                    self.settings.setValue("geocerca",'0,""')
+                    self.settings.setValue("geocerca", '0,""')
                     self.settings.setValue("folio_de_viaje", "")
                     self.settings.setValue("info_estudiantes", "0,0.0")
                     self.settings.setValue("info_normales", "0,0.0")
@@ -262,7 +259,7 @@ class Ventana(QWidget):
                     self.settings.setValue("info_ad_mayores", "0,0.0")
                     self.settings.setValue("total_a_liquidar", "0.0")
                     self.settings.setValue("total_de_folios", 0)
-                    
+
         except Exception as e:
             logging.info("Error al cargar la configuración inicial: " + str(e))
             print("Error al cargar la configuración inicial: " + str(e))
@@ -279,7 +276,7 @@ class Ventana(QWidget):
             else:
                 self.flash_gps("OK")
         except Exception as e:
-            print("inicio.py, linea 160: "+str(e))
+            print("inicio.py, linea 160: " + str(e))
 
     def runLeerMinicom(self):
         try:
@@ -295,7 +292,7 @@ class Ventana(QWidget):
         except Exception as e:
             logging.info("Error al iniciar el hilo de minicom: " + str(e))
             print("Error al iniciar el hilo de minicom: " + str(e))
-    
+
     def reportProgressIconos(self, res):
         try:
             self.obtener_hora()
@@ -343,13 +340,13 @@ class Ventana(QWidget):
         except Exception as e:
             logging.info("Error al iniciar el hilo de tarjeta: " + str(e))
             print("Error al iniciar el hilo de tarjeta: " + str(e))
-        
-    #leer la tarjeta
+
+    # leer la tarjeta
     def reportProgressTarjeta(self, result):
         try:
-        #Si el resultado es una lista y la lista no está vacía, abra la ventana
+            # Si el resultado es una lista y la lista no está vacía, abra la ventana
             if len(result) == 14:
-                #Abrir ventana chofer
+                # Abrir ventana chofer
                 if self.settings.value('csn_chofer') == "":
                     variables_globales.csn_chofer = result
                     self.settings.setValue('csn_chofer', result)
@@ -361,19 +358,19 @@ class Ventana(QWidget):
                     self.registrar_usuario = VentanaChofer(AbrirVentanas.cerrar_vuelta.close_signal, AbrirVentanas.cerrar_vuelta.close_signal_pasaje)
                     self.registrar_usuario.show()
                 elif variables_globales.ventana_actual == VentanaActual.CERRAR_VUELTA:
-                    #Abrir ventana cerrar vuelta
+                    # Abrir ventana cerrar vuelta
                     logging.info('Se abrirá Ventana de Corte')
                     AbrirVentanas.cerrar_vuelta.cargar_datos()
                     AbrirVentanas.cerrar_vuelta.show()
                 elif variables_globales.ventana_actual == VentanaActual.CERRAR_TURNO:
-                    #Abrir ventana cerrar turno
+                    # Abrir ventana cerrar turno
                     logging.info('Se abrirá Ventana de Cerrar Turno')
                     AbrirVentanas.cerrar_turno.cargar_datos()
                     AbrirVentanas.cerrar_turno.show()
         except Exception as e:
             logging.info("Error al leer la tarjeta: " + str(e))
             print("Error al leer la tarjeta: " + str(e))
-            
+
     def verificar_datos_pendientes(self, cantidad_de_datos):
         if int(cantidad_de_datos) > 0:
             self.label_datos_info.show()
@@ -392,65 +389,42 @@ class Ventana(QWidget):
         except Exception as e:
             logging.info("Error al actualizar el servidor: " + str(e))
             print("Error al actualizar el servidor: " + str(e))
-    
-    #Con este método obtenemos la hora
+
+    # Con este método obtenemos la hora
     def obtener_hora(self):
         try:
-
-            # Obtener la fecha y hora en formato Y/m/d H:M:S
             fecha_hora = subprocess.check_output(['date', '+%Y/%m/%d %H:%M:%S']).decode().strip()
-
-            # Obtener la fecha en formato Y/m/d
             fecha = subprocess.check_output(['date', '+%d-%m-%Y']).decode().strip()
-
-            # Obtener la hora en formato H:M:S
             hora = subprocess.check_output(['date', '+%H:%M:%S']).decode().strip()
 
-            #print("Fecha y hora:", fecha_hora)
-            #print("Fecha:", fecha)
-            #print("Hora:", hora)
-            
             self.label_fecha.setText(fecha_hora)
-            
-            # Guardamos los datos en variables globales
+
             variables_globales.fecha_completa_actual = fecha_hora
             variables_globales.fecha_actual = fecha
             variables_globales.hora_actual = hora
-            
-            #print(variables_globales.fecha_completa_actual)
-            #print(variables_globales.fecha_actual)
-            #print(variables_globales.hora_actual)
-            
-            #if self.hora_actualizada == False:
-            #    self.hora_actualizada = actualizar_hora()
         except Exception as e:
-            print("\x1b[1;31;47m"+str(e)+'\033[0;m')
+            print("\x1b[1;31;47m" + str(e) + '\033[0;m')
 
-    #Con este método cambiamos el icono del 3g según la señal
+    # Con este método cambiamos el icono del 3g según la señal
     def flash_3g(self, signal):
         try:
-            if(signal == -1):
+            if (signal == -1):
                 return
             if signal >= 20:
-                self.label_senal_celular.setPixmap(
-                    QPixmap("/home/pi/Urban_Urbano/Imagenes/3G100.png"))
+                self.label_senal_celular.setPixmap(QPixmap("/home/pi/Urban_Urbano/Imagenes/3G100.png"))
             elif signal < 20 and signal >= 15:
-                self.label_senal_celular.setPixmap(
-                    QPixmap("/home/pi/Urban_Urbano/Imagenes/3G75.png"))
+                self.label_senal_celular.setPixmap(QPixmap("/home/pi/Urban_Urbano/Imagenes/3G75.png"))
             elif signal < 15 and signal >= 10:
-                self.label_senal_celular.setPixmap(
-                    QPixmap("/home/pi/Urban_Urbano/Imagenes/3G50.png"))
+                self.label_senal_celular.setPixmap(QPixmap("/home/pi/Urban_Urbano/Imagenes/3G50.png"))
             elif signal < 10 and signal > 2:
-                self.label_senal_celular.setPixmap(
-                    QPixmap("/home/pi/Urban_Urbano/Imagenes/3G25.png"))
+                self.label_senal_celular.setPixmap(QPixmap("/home/pi/Urban_Urbano/Imagenes/3G25.png"))
             elif signal < 2:
-                self.label_senal_celular.setPixmap(
-                    QPixmap("/home/pi/Urban_Urbano/Imagenes/3G0.png"))
+                self.label_senal_celular.setPixmap(QPixmap("/home/pi/Urban_Urbano/Imagenes/3G0.png"))
         except Exception as e:
             logging.info("Error al actualizar el 3g: " + str(e))
             print("Error al actualizar el 3g: " + str(e))
 
-    #Con este método ocultamos o mostramos el icono del sim
+    # Con este método ocultamos o mostramos el icono del sim
     def flash_sim(self, respuesta):
         try:
             if respuesta == "OK\r\n" or respuesta == "+QINISTAT: 7\r\n":
@@ -461,20 +435,18 @@ class Ventana(QWidget):
             logging.info("Error al actualizar el sim: " + str(e))
             print("Error al actualizar el sim: " + str(e))
 
-    #Con este método ocultamos o mostramos el icono del gps
+    # Con este método ocultamos o mostramos el icono del gps
     def flash_gps(self, estado):
         try:
             if estado != "OK":
-                self.label_conex_gps.setPixmap(
-                    QPixmap("/home/pi/Urban_Urbano/Imagenes/noGPS.png"))
+                self.label_conex_gps.setPixmap(QPixmap("/home/pi/Urban_Urbano/Imagenes/noGPS.png"))
                 if self.bandera_gps:
                     self.label_conex_gps.hide()
                 else:
                     self.label_conex_gps.show()
                 self.bandera_gps = not self.bandera_gps
             else:
-                self.label_conex_gps.setPixmap(
-                    QPixmap("/home/pi/Urban_Urbano/Imagenes/GPS.png"))
+                self.label_conex_gps.setPixmap(QPixmap("/home/pi/Urban_Urbano/Imagenes/GPS.png"))
                 if self.bandera_gps:
                     self.label_conex_gps.hide()
                 else:
@@ -484,7 +456,7 @@ class Ventana(QWidget):
             logging.info("Error al actualizar el gps: " + str(e))
             print("Error al actualizar el gps: " + str(e))
 
-    #Inicializamos las señales de los botones
+    # Inicializamos las señales de los botones
     def inicializar(self):
         try:
             self.label_font.mousePressEvent = self.handle_ok
@@ -495,12 +467,13 @@ class Ventana(QWidget):
             print("Error al inicializar: " + str(e))
 
     def pn532_hard_reset(self, event):
+        """Hard reset del PN532 usando el HUB (nfc_rst activo en LOW)."""
         try:
-
             print("Hard reset PN532 (botón)")
-            GPIO.output(RSTPDN_PIN, GPIO.LOW);  time.sleep(0.40)
-            GPIO.output(RSTPDN_PIN, GPIO.HIGH); time.sleep(0.60)
-            # (opcional) también levanta la bandera para que el worker se re-prepare
+            # Pulso lógico True (con active_high=False) = LOW físico
+            HUB.pulse("nfc_rst", 400)   # 400 ms en bajo
+            time.sleep(0.60)            # tiempo de arranque del chip
+            # (opcional) notifica al worker para re-prepararse
             try:
                 import variables_globales as vg
                 vg.pn532_reset_requested = True
@@ -510,11 +483,11 @@ class Ventana(QWidget):
             print("Error al resetear el lector NFC: " + str(e))
             logging.error(f"Error al resetear el lector NFC: {e}")
 
-    #Método para manejar el evento click del label ok
+    # Método para manejar el evento click del label ok
     def handle_ok(self, event):
         pass
 
-    #Método para obtener la temperatura de la raspberry
+    # Método para obtener la temperatura de la raspberry
     def temperatura(self):
         try:
             t = subprocess.run("vcgencmd measure_temp", stdout=subprocess.PIPE, shell=True)
@@ -530,7 +503,7 @@ class Ventana(QWidget):
             logging.info("Error al obtener la temperatura: " + str(e))
             print("Error al obtener la temperatura: " + str(e))
 
-    #Método para obtener la mac address
+    # Método para obtener la mac address
     def pide_mac(self):
         try:
             m = subprocess.run("cat /sys/class/net/eth0/address", stdout=subprocess.PIPE, shell=True)
@@ -539,24 +512,25 @@ class Ventana(QWidget):
         except Exception as e:
             logging.info("Error al obtener la mac: " + str(e))
             print("Error al obtener la mac: " + str(e))
-            
+
     def scrollbar_value_changed(self, value):
         try:
-            if self.backlight != None:
+            if self.backlight is not None:
                 if value >= 10:
-                    self.backlight.brightness =value
+                    self.backlight.brightness = value
         except Exception as e:
             print("Ocurrió algo al ejecutar la función del brillo: ", e)
-            
+
     def apagar_sistema(self, event):
         try:
             os.system("sudo shutdown -h now")
         except Exception as e:
             logging.info("Error al apagar el sistema: " + str(e))
             print("Error al apagar el sistema: " + str(e))
-        
+
+
 if __name__ == '__main__':
-    print("\x1b[1;32m"+"Iniciando...")
+    print("\x1b[1;32m" + "Iniciando...")
     app = QApplication(['a'])
     GUI = Ventana()
     GUI.show()

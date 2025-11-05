@@ -14,8 +14,8 @@ sys.path.insert(1, '/home/pi/Urban_Urbano/db')
 from glob import glob
 
 #Librerias exteriores
-import RPi.GPIO as GPIO
 import serial
+from gpio_hub import GPIOHub, PINMAP
 import time
 import variables_globales
 import subprocess
@@ -61,10 +61,13 @@ except Exception as e:
     logging.info(e)
 
 try:
-    GPIO.setmode(GPIO.BOARD)
-    GPIO.setup(31, GPIO.OUT)
+    hub = GPIOHub(PINMAP)  # modo BCM ya dentro
+
+    # Estados de reposo equivalentes a tu código previo
+    hub.write("quectel_reset", False)   # BCM6 LOW
+    hub.write("quectel_pwrkey", False)  # BCM19 HIGH
 except Exception as e:
-    print("\x1b[1;31;47m"+"comand.py, linea 66, Error al abrir el puerto serial: "+str(e)+'\033[0;m')
+    print("\x1b[1;31;47m"+"comand.py, Error al iniciar el GPIO: "+str(e)+'\033[0;m')
     logging.info(e)
     
 class Principal_Modem:
@@ -482,10 +485,7 @@ class Principal_Modem:
                     if 'RDY' in res.decode():
                         break
                     elif i == 20:
-                        #Aqui ira la parte donde se reiniciara el modulo por GPIO
-                        GPIO.output(31, True)
-                        time.sleep(1)
-                        GPIO.output(31, False)
+                        hub.quectel_reiniciar(ms_reset=1000, verificacion=False)
                         i = 0
                         while True:
                             res = ser.readline()

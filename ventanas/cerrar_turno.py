@@ -7,7 +7,7 @@
 #
 ##########################################
 
-#Librerías externas
+# Librerías externas
 from PyQt5 import uic
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -15,27 +15,31 @@ from PyQt5.QtWidgets import *
 from queries import obtener_datos_aforo
 from chofer import VentanaChofer
 import logging
-import RPi.GPIO as GPIO
 import subprocess
 
-#Librerías propias
+# GPIO hub (BCM)
+from gpio_hub import GPIOHub, PINMAP
+
+# Librerías propias
 import variables_globales
 from variables_globales import VentanaActual
 
+# Instancia única del hub
 try:
-    GPIO.setmode(GPIO.BOARD)
-    GPIO.setup(33, GPIO.OUT)
+    HUB = GPIOHub(PINMAP)
 except Exception as e:
-    print("No se pudo inicializar el ventilador: "+str(e))
+    print("No se pudo iniciar GPIOHub: " + str(e))
+    logging.info(e)
 
 class CerrarTurno(QWidget):
     close_signal = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         try:
             uic.loadUi("/home/pi/Urban_Urbano/ui/cerrarturno.ui", self)
 
-            #Realizamos configuración de la ventana turno.
+            # Configuración de la ventana
             self.setGeometry(0, 0, 800, 440)
             self.setWindowFlags(Qt.FramelessWindowHint)
             self.label_cancel.mousePressEvent = self.cancelar
@@ -48,7 +52,7 @@ class CerrarTurno(QWidget):
             print(e)
             logging.info(f"Error al cargar la ventana de turno: {e}")
 
-    #Función para cancelar el turno.
+    # Cancelar turno
     def cancelar(self, event):
         try:
             self.settings.setValue('ventana_actual', "enviar_vuelta")
@@ -57,7 +61,7 @@ class CerrarTurno(QWidget):
             print(e)
             logging.info(f"Error al cancelar el turno: {e}")
     
-    #Función para cerrar la ventana de turno.
+    # Cerrar turno
     def cerrar_turno(self, event):
         try:
             self.close()
@@ -76,7 +80,13 @@ class CerrarTurno(QWidget):
             self.settings.setValue('nombre_de_operador_inicio', "")
             self.settings.setValue('nombre_de_operador_final', "")
             subprocess.run('sudo sh -c "sync; echo 3 > /proc/sys/vm/drop_caches"', shell=True)
-            GPIO.output(33, False)
+
+            # Apagar ventilador por hub si está mapeado
+            if "fan_en" in PINMAP:
+                try:
+                    HUB.write("fan_en", False)
+                except Exception as e:
+                    logging.info(f"No se pudo apagar el ventilador: {e}")
         except Exception as e:
             print(e)
             logging.info(f"Error al cerrar el turno: {e}")
@@ -109,7 +119,7 @@ class CerrarTurno(QWidget):
             self.label_total_a_liquidar.setText(self.settings.value('total_a_liquidar'))
 
             try:
-                # Obtenemos el nombre del operador y lo mostramos en la pantalla
+                # Nombre del operador
                 if len(variables_globales.nombre_de_operador_inicio) > 0:
                     self.label_operador.setText("Operador: " + variables_globales.nombre_de_operador_inicio)
                 else:

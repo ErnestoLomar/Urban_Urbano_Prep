@@ -1,5 +1,4 @@
 from glob import glob
-import RPi.GPIO as GPIO
 import serial
 import time
 import os
@@ -16,6 +15,7 @@ sys.path.insert(1, '/home/pi/Urban_Urbano/utils')
 
 from queries import obtener_datos_aforo, insertar_estadisticas_boletera
 import variables_globales
+from gpio_hub import GPIOHub, PINMAP
 
 ##########################################################################################################################################
 #INICIAMOS COMUNICACIoN POR LOS PUERTOS Y ACTIVAMOS LOS GPIO NECESARIOS
@@ -25,14 +25,12 @@ try:
     ser.flushInput()
     ser.flushOutput()
     time.sleep(0.3)
-    GPIO.setmode(GPIO.BOARD)
-    GPIO.setwarnings(False)
-    GPIO.setup(12, GPIO.OUT)
-    time.sleep(2)
-    GPIO.setup(31, GPIO.OUT)
-    GPIO.setup(35, GPIO.OUT)
-    GPIO.output(31, False)
-    GPIO.output(35, True)
+    hub = GPIOHub(PINMAP)  # setmode BCM ya está dentro
+
+    # Estados iniciales equivalentes a tu código previo:
+    # active_high=False => False = reposo (nivel alto físico en el módulo)
+    hub.write("quectel_reset", False)
+    hub.write("quectel_pwrkey", False)
     print("QUECTEL INICIADO CORRECTAMENTE")
 except:
     print("No se pudo comunicar con el minicom")
