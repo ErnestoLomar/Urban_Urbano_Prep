@@ -5,6 +5,8 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 
 Linea cronológica:
 
+- v3.64:
+  - Se modifico el archivo prepago.py y pn532_blinka_adapter.py para que el lector NFC pueda detectar celulares americanos.
 - v3.63:
   - Se creo un hub_gpio.py para controlar el zumbador, ventilador y reset_reader.
   - Se volvio a agregar la libreriaadafruit_pn532.

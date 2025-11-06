@@ -64,8 +64,8 @@ GIF_CARGANDO = "/home/pi/Urban_Urbano/Imagenes/cargando.gif"
 GIF_PAGADO = "/home/pi/Urban_Urbano/Imagenes/pagado.gif"
 
 # Tiempo total de espera para detección (segundos)
-DETECCION_TIMEOUT_S = 1.5
-DETECCION_INTERVALO_S = 0.010  # evita busy-wait
+DETECCION_TIMEOUT_S = 4
+DETECCION_INTERVALO_S = 0.015  # evita busy-wait
 
 # Reintentos de inicio PN532
 PN532_INIT_REINTENTOS = 10
@@ -73,7 +73,7 @@ PN532_INIT_INTERVALO_S = 0.05
 
 # Reintentos de interconexión con HCE
 HCE_REINTENTOS = 12
-HCE_REINTENTO_INTERVALO_S = 0.025
+HCE_REINTENTO_INTERVALO_S = 0.06
 
 # APDU Select AID (HCE App) — ajusta a tu AID real
 SELECT_AID_APDU = bytearray([
@@ -196,38 +196,91 @@ class HCEWorker(QThread):
         except Exception as e:
             logger.debug(f"Buzzer ERR error: {e}")
 
-    def _enviar_apdu(self, data_bytes):
-        """Envía un APDU y devuelve (success, respuesta_bytes_o_b'')."""
+    def _enviar_apdu(self, data_bytes, *, rearm=True):
+        """Envía APDU. Si falla y rearm=True, re-detecta y re-select una sola vez."""
         try:
             with vg.pn532_lock:
-                success, response = self.nfc.inDataExchange(bytearray(data_bytes))
-            if response is None:
-                response = b""
-            return success, response
+                ok, resp = self.nfc.inDataExchange(bytearray(data_bytes))
+            if ok and resp is not None:
+                return True, (resp or b"")
         except Exception as e:
             logger.error(f"Error inDataExchange: {e}")
+
+        if not rearm:
             return False, b""
+
+        logger.info("Rearme ISO-DEP: re-detección y re-SELECT")
+        if self._detectar_dispositivo(timeout_s=1.8):
+            # SELECT directo SIN rearmar para evitar bucle
+            ok_sel, r_sel = self._select_aid_low()
+            if ok_sel and len(r_sel) >= 2 and r_sel[-2:] == b"\x90\x00":
+                try:
+                    with vg.pn532_lock:
+                        ok2, resp2 = self.nfc.inDataExchange(bytearray(data_bytes))
+                    return ok2, (resp2 or b"")
+                except Exception as e:
+                    logger.error(f"Error inDataExchange tras rearme: {e}")
+        return False, b""
 
     def _detectar_dispositivo(self, timeout_s=DETECCION_TIMEOUT_S, intervalo_s=DETECCION_INTERVALO_S):
         inicio = time.time()
         while self.running and (time.time() - inicio) < timeout_s:
             try:
                 with vg.pn532_lock:
-                    if self.nfc.inListPassiveTarget(timeout=0.2):
+                    ok = self.nfc.inListPassiveTarget(timeout=1.2)
+                    if ok:
+                        try:
+                            self.contador_sin_dispositivo = 0
+                            uid = self.nfc.read_uid(timeout=0.2)
+                            if uid:
+                                logger.info(f"UID detectado: {uid.hex().upper()}")
+                        except Exception:
+                            pass
                         return True
             except Exception as e:
-                logger.debug(f"inListPassiveTarget error: {e}")
+                logger.debug(f"detección error: {e}")
             time.sleep(intervalo_s)
         return False
 
     def _seleccionar_aid(self):
-        ok, r = self._enviar_apdu(SELECT_AID_APDU)
+        ok, r = self._select_aid_low()
+        print("SELECT AID: ", ok, r)
         if not ok or len(r) < 2:
             logger.info("SELECT AID sin respuesta válida")
             return False
-        sw = r[-2:]  # SW1SW2 al final
+        sw = r[-2:]
         logger.info(f"SELECT SW={sw.hex().upper()}  DATA={r[:-2].hex().upper() if len(r)>2 else ''}")
         return sw == b"\x90\x00"
+    
+    def _select_aid_low(self):
+        """SELECT AID sin rearmar. Refresca Tg con 0x4A y espera."""
+        try:
+            with vg.pn532_lock:
+                # refresca Tg para evitar target stale
+                self.nfc.refresh_target(timeout=1.0)
+        except Exception:
+            pass
+
+        time.sleep(0.18)  # antes 0.12 → da tiempo al stack ISO-DEP
+
+        try:
+            with vg.pn532_lock:
+                ok, r = self.nfc.inDataExchange(SELECT_AID_APDU)
+        except Exception as e:
+            logger.error(f"SELECT low error: {e}")
+            return False, b""
+
+        if not ok or len(r) < 2:
+            time.sleep(0.18)
+            try:
+                with vg.pn532_lock:
+                    # reintento corto con Tg refrescado otra vez
+                    self.nfc.refresh_target(timeout=0.6)
+                    ok, r = self.nfc.inDataExchange(SELECT_AID_APDU)
+            except Exception as e:
+                logger.error(f"SELECT low retry error: {e}")
+                return False, b""
+        return ok, (r or b"")
 
     def _parsear_respuesta_celular(self, back_bytes):
         if not back_bytes:
