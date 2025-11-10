@@ -5,6 +5,9 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 
 Linea cronológica:
 
+- v3.65:
+  - Se modifico el archivo .so para que al consultar solo una funcion 'ev2PackInfo' se obtenga toda la informacion de la tarjeta.
+  - Se arreglo el bug de que las ventanas de prepago a veces no se abrian cuando se escogian muchas y que la lectura de tarjetas al cerrar el turno ya no funcionaba.
 - v3.64:
   - Se modifico el archivo prepago.py y pn532_blinka_adapter.py para que el lector NFC pueda detectar celulares americanos.
 - v3.63:

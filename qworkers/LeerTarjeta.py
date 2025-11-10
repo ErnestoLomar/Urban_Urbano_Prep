@@ -35,6 +35,8 @@ from queries import obtener_datos_aforo, insertar_estadisticas_boletera
 from tickets_usados import insertar_ticket_usado, verificar_ticket_completo, verificar_ticket
 import variables_globales as vg
 
+setattr(vg, "nfc_closed_for_hce", False) 
+
 # -------------------- Política de reset NFC --------------------
 _NFC_MAX_FALLOS_CONSECUTIVOS = 3
 _NFC_RESET_COOLDOWN_S = 10.0
@@ -94,11 +96,21 @@ class LeerTarjetaWorker(QObject):
             self.lib.ev2IsPresent.restype = ctypes.c_void_p
             self.lib.tipoTiscEV2.restype  = ctypes.c_void_p
             self.lib.obtenerVigencia.restype = ctypes.c_void_p
+            self.lib.ev2PackInfo.argtypes = []
+            self.lib.ev2PackInfo.restype = ctypes.c_void_p
 
             # free_str(ptr) libera la cadena asignada por la librería
             self.lib.free_str.argtypes = [ctypes.c_void_p]
             self.lib.free_str.restype  = None
             self.lib.nfc_close_all.restype = None
+
+
+            # 👉 expón un cerrador reutilizable
+            try:
+                vg.nfc_close_all = self.lib.nfc_close_all
+            except Exception:
+                pass
+
         except Exception as e:
             print(e)
             logging.info(e)
@@ -208,22 +220,49 @@ class LeerTarjetaWorker(QObject):
                         self.pn532_hard_reset()
                         vg.pn532_reset_requested = False
                         self._nfc_fallos = 0
+                    
+                    # si volvió a modo lector, limpia el latch
+                    if vg.modo_nfcCard and getattr(vg, "nfc_closed_for_hce", False):
+                        vg.nfc_closed_for_hce = False
+
+                    print("Hilo LeerTarjetaWorker: ", threading.current_thread().name)
 
                     # -------------------- NFC --------------------
                     if vg.modo_nfcCard:
                         try:
-                            # Importante: NO usar locks aquí para evitar deadlocks
-                            csn = self._cstr(self.lib.ev2IsPresent())
+                            print("modo_nfcCard: ", vg.modo_nfcCard)
+                            # Una sola llamada: UID|TIPO|VIGENCIA(17)|NOMBRE(24)
+                            pack = self._cstr(self.lib.ev2PackInfo())
                         except Exception as e:
-                            print("\x1b[1;31;47m"+"ev2IsPresent error: "+str(e)+'\033[0;m')
-                            logging.info(f"ev2IsPresent error: {e}")
+                            print("\x1b[1;31;47m"+"ev2PackInfo error: "+str(e)+'\033[0;m')
+                            logging.info(f"ev2PackInfo error: {e}")
                             self._nfc_fallos += 1
                             self._maybe_reset_nfc()
                             next_poll = max(next_poll, time.monotonic() + 0.12)
                             continue
-                        
+
+                        # Sin tag -> cadena vacía
+                        if not pack:
+                            next_poll = max(next_poll, time.monotonic() + 0.12)
+                            continue
+
+                        try:
+                            csn, tipo, vig, nombre = pack.split("|", 3)
+                        except ValueError:
+                            logging.info(f"Paquete NFC inválido: {pack!r}")
+                            self._nfc_fallos += 1
+                            self._maybe_reset_nfc()
+                            next_poll = max(next_poll, time.monotonic() + 0.12)
+                            continue
+
                         csn = (csn or "").strip()
                         print("CSN: ", csn)
+                        tipo = (tipo or "").strip()
+                        print("Tipo: ", tipo)
+                        vig = (vig or "").strip()
+                        print("Vigencia: ", vig)
+                        nombre = (nombre or "").strip()
+                        print("Nombre: ", nombre)
 
                         # Lectura incompleta
                         if "IN" in csn.upper():
@@ -255,33 +294,39 @@ class LeerTarjetaWorker(QObject):
                         hora = str(fecha_actual[(int(indice) - 2):(int(indice) + 6)]).replace(":", "")
 
                         try:
-                            # Importante: sin locks en estas llamadas
-                            tipo = self._cstr(self.lib.tipoTiscEV2())[0:2]
-                            print("Tipo de tarjeta: ", tipo)
+                            tipo = (tipo or "")[:2]  # "KI", "DE", "IN", etc.
                             if tipo == "KI":
-                                datos_completos_tarjeta = self._cstr(self.lib.obtenerVigencia())
-                                vigenciaTarjeta = datos_completos_tarjeta[:12]
-
+                                # ev2PackInfo ya trae vig(17) y nombre(24)
+                                vig = vig or ""
+                                nombre = nombre or ""
+                                datos_completos_tarjeta = f"{vig}{nombre}"  # 17+24 = 41, como antes para logs
+                                vigenciaTarjeta = vig[:12]                  # YYMMDDhhmmss (12)
                                 print("Datos completos de la tarjeta: ", datos_completos_tarjeta)
 
                                 # Validación de vigencia
-                                if len(vigenciaTarjeta) == 12 and int(vigenciaTarjeta[:2]) >= 22:
+                                if len(vigenciaTarjeta) == 12 and vigenciaTarjeta[:2].isdigit() and int(vigenciaTarjeta[:2]) >= 22:
                                     now_dt = datetime.now()
                                     vigenciaActual = f'{str(now_dt.strftime("%Y-%m-%d %H:%M:%S"))[2:].replace(" ","").replace("-","").replace(":","")}'
                                     if vigenciaActual <= vigenciaTarjeta:
                                         if len(csn) == 14:
                                             vg.vigencia_de_tarjeta = vigenciaTarjeta
+
+                                            # Extrae número y nombre del operador como hacía tu código
+                                            num_operador = vig[12:17] if len(vig) >= 17 else ""
+                                            nombre_limpio = nombre.replace("*", " ").replace(".", " ").replace("-", " ").replace("_", " ")
+
                                             if str(self.settings.value('ventana_actual')) not in ("chofer", "corte", "enviar_vuelta", "cerrar_turno"):
                                                 if len(vg.numero_de_operador_inicio) > 0 or len(self.settings.value('numero_de_operador_inicio')) > 0:
-                                                    vg.numero_de_operador_final = datos_completos_tarjeta[12:17]
-                                                    vg.nombre_de_operador_final = datos_completos_tarjeta[17:41].replace("*", " ").replace(".", " ").replace("-", " ").replace("_", " ")
-                                                    self.settings.setValue('numero_de_operador_final', f"{datos_completos_tarjeta[12:17]}")
-                                                    self.settings.setValue('nombre_de_operador_final', f"{datos_completos_tarjeta[17:41].replace('*',' ').replace('.',' ').replace('-',' ').replace('_',' ')}")
+                                                    vg.numero_de_operador_final = num_operador
+                                                    vg.nombre_de_operador_final = nombre_limpio
+                                                    self.settings.setValue('numero_de_operador_final', f"{num_operador}")
+                                                    self.settings.setValue('nombre_de_operador_final', f"{nombre_limpio}")
                                                 else:
-                                                    vg.numero_de_operador_inicio = datos_completos_tarjeta[12:17]
-                                                    vg.nombre_de_operador_inicio = datos_completos_tarjeta[17:41].replace("*", " ").replace(".", " ").replace("-", " ").replace("_", " ")
-                                                    self.settings.setValue('numero_de_operador_inicio', f"{datos_completos_tarjeta[12:17]}")
-                                                    self.settings.setValue('nombre_de_operador_inicio', f"{datos_completos_tarjeta[17:41].replace('*',' ').replace('.',' ').replace('-',' ').replace('_',' ')}")
+                                                    vg.numero_de_operador_inicio = num_operador
+                                                    vg.nombre_de_operador_inicio = nombre_limpio
+                                                    self.settings.setValue('numero_de_operador_inicio', f"{num_operador}")
+                                                    self.settings.setValue('nombre_de_operador_inicio', f"{nombre_limpio}")
+
                                             vg.csn_chofer_respaldo = csn
                                             self.progress.emit(csn)
                                             self.hub.buzzer_blinks(2, on_ms=100, off_ms=100)
@@ -318,6 +363,15 @@ class LeerTarjetaWorker(QObject):
                             self._nfc_fallos += 1
                             self._maybe_reset_nfc()
                             continue
+                    else:
+                        # Solo una vez por transición
+                        if not getattr(vg, "nfc_closed_for_hce", False):
+                            try:
+                                self.lib.nfc_close_all()
+                                vg.nfc_closed_for_hce = True
+                                time.sleep(0.1)  # da tiempo al bus
+                            except Exception as e:
+                                print("Error al cerrar NFC: ", e)
 
                     # -------------------- QR --------------------
                     if self.ser.isOpen():

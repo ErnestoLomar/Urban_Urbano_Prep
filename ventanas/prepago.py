@@ -111,7 +111,8 @@ class HCEWorker(QThread):
         self.settings = QSettings(SETTINGS_PATH, QSettings.IniFormat)
 
         # PN532 por Blinka: CE0 (BOARD24) y RESET en D27 (BOARD13)
-        self.nfc = Pn532Blinka(cs_pin=board.CE0, rst_pin=board.D27)
+        # self.nfc = Pn532Blinka(cs_pin=board.CE0, rst_pin=board.D27)
+        self.nfc = None
 
     def pn532_hard_reset(self):
         try:
@@ -131,6 +132,19 @@ class HCEWorker(QThread):
                 self.error_inicializacion.emit("PN532 ocupado. Intente de nuevo.")
                 self.running = False
                 return
+            
+            # instancia aquí
+            try:
+                with vg.pn532_lock:
+                    self.nfc = Pn532Blinka(cs_pin=board.CE0, rst_pin=board.D27)
+            except Exception as e:
+                self.error_inicializacion.emit(f"No se pudo abrir PN532: {e}")
+                self.running = False
+                return
+            
+            # reset preventivo antes de begin()
+            self.pn532_hard_reset()
+            time.sleep(0.12)
 
             intentos = 0
             versiondata = None
@@ -549,6 +563,7 @@ class VentanaPrepago(QMainWindow):
             logger.error(f"Reset PN532 diferido falló: {e}")
 
         vg.modo_nfcCard = True
+        vg.pn532_reset_requested = True
         self.close()
 
     def mostrar_y_esperar(self):
@@ -668,5 +683,6 @@ class VentanaPrepago(QMainWindow):
         except Exception as e:
             logger.debug(f"closeEvent stop error: {e}")
         vg.modo_nfcCard = True
+        vg.pn532_reset_requested = True
         self.loop.quit()
         event.accept()

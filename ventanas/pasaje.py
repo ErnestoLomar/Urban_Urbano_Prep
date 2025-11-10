@@ -365,7 +365,14 @@ class VentanaPasaje(QWidget):
                     total_hce = datos.total_pasajeros_tarjeta
                     print("El total de HCE es: ", total_hce)
                     for _ in range(total_hce):
-                        vg.modo_nfcCard = False  # pausa lector concurrente
+                        # pausa lector y suelta libnfc
+                        vg.modo_nfcCard = False
+                        try:
+                            getattr(vg, "nfc_close_all", lambda: None)()
+                        finally:
+                            vg.nfc_closed_for_hce = True  # evita que el lector vuelva a cerrar
+                        time.sleep(0.8)  # margen realista para liberar el PN532
+
                         ventana = VentanaPrepago(
                             tipo=tipo, tipo_num=tipo_num, setting=setting,
                             total_hce=1, precio=precio, id_tarifa=self.id_tabla,
