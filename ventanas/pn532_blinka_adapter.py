@@ -16,6 +16,9 @@ class Pn532Blinka:
         self.rst = digitalio.DigitalInOut(rst_pin)
         self.pn  = PN532_SPI(self.spi, self.cs, reset=self.rst)
         self._tg = 0x01
+        # nuevos tiempos por defecto
+        self.t_poll = 0.12
+        self.t_apdu = 0.25
 
     def begin(self):
         return True
@@ -23,7 +26,10 @@ class Pn532Blinka:
     def getFirmwareVersion(self):
         return self.pn.firmware_version
 
-    def _safe_call(self, cmd, response_length=0, params=b"", timeout=1.0, retries=3, sleep_s=0.03):
+    def _safe_call(self, cmd, response_length=0, params=b"", timeout=None, retries=3, sleep_s=0.02):
+        # timeout ahora opcional y más corto
+        if timeout is None:
+            timeout = self.t_apdu
         for _ in range(retries):
             try:
                 return self.pn.call_function(cmd, response_length=response_length, params=params, timeout=timeout)
@@ -50,19 +56,19 @@ class Pn532Blinka:
         self.pn.SAM_configuration()
         self._rf_tune()
 
-    def inListPassiveTarget(self, timeout=1.2):
-        # SIEMPRE con 0x4A para fijar un Tg válido
-        resp = self._safe_call(0x4A, response_length=255,
-                            params=bytes([0x01, 0x00]), timeout=timeout)
+    def inListPassiveTarget(self, timeout=None):
+        if timeout is None:
+            timeout = self.t_poll
+        resp = self._safe_call(0x4A, response_length=255, params=bytes([0x01, 0x00]), timeout=timeout)
         if resp and len(resp) >= 2 and resp[0] >= 1:
             self._tg = resp[1]
             return True
         return False
     
-    def refresh_target(self, timeout=1.0):
-        """Re-poll con 0x4A para refrescar self._tg justo antes de APDUs."""
-        resp = self._safe_call(0x4A, response_length=255,
-                               params=bytes([0x01, 0x00]), timeout=timeout)
+    def refresh_target(self, timeout=None):
+        if timeout is None:
+            timeout = self.t_poll
+        resp = self._safe_call(0x4A, response_length=255, params=bytes([0x01, 0x00]), timeout=timeout)
         if resp and len(resp) >= 2 and resp[0] >= 1:
             self._tg = resp[1]
             return True
@@ -77,7 +83,8 @@ class Pn532Blinka:
 
     def inDataExchange(self, data_bytes, response_len=255):
         resp = self._safe_call(0x40, response_length=response_len,
-                               params=bytes([self._tg]) + bytes(data_bytes), timeout=1.0)
+                               params=bytes([self._tg]) + bytes(data_bytes),
+                               timeout=self.t_apdu)
         if not resp:
             return False, b""
         ok = (resp[0] == 0x00)

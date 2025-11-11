@@ -9,7 +9,8 @@
 
 # Librerías externas
 from PyQt5 import uic
-from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QFrame, QGraphicsDropShadowEffect
+from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QBrush, QPixmap
 from PyQt5.QtCore import QSettings, Qt
 import sys
 from time import strftime
@@ -34,6 +35,65 @@ from queries import obtener_datos_aforo, insertar_estadisticas_boletera
 import variables_globales as vg
 from emergentes import VentanaEmergente
 from prepago import VentanaPrepago
+
+class OverlayPrepago(QWidget):
+    def __init__(self, titulo="Cobro digital en curso", subtitulo="", logo_path=None):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, False)  # bloquea clics al fondo
+        self.setFocusPolicy(Qt.NoFocus)  # no roba foco
+        self.logo_path = logo_path
+
+        # ocupar pantalla
+        try:
+            g = QApplication.desktop().screenGeometry(); self.setGeometry(g)
+        except Exception:
+            self.setGeometry(0, 0, 800, 480)
+
+        # tarjeta
+        root = QVBoxLayout(self); root.setContentsMargins(24, 24, 24, 24)
+        card = QFrame(self); card.setObjectName("card")
+        card.setStyleSheet("""
+            #card { background: rgba(255,255,255,0.98); border-radius: 18px; border: 1px solid rgba(0,0,0,0.06); }
+            QLabel#title   { font-size: 26px; font-weight: 700; color: #1850A0; }   /* azul marca */
+            QLabel#subtitle{ font-size: 15px; color: #334155; }
+        """)
+        shadow = QGraphicsDropShadowEffect(card); shadow.setBlurRadius(36); shadow.setOffset(0, 12); shadow.setColor(QColor(0,0,0,60))
+        card.setGraphicsEffect(shadow)
+
+        box = QVBoxLayout(card); box.setContentsMargins(28, 24, 28, 24); box.setSpacing(10)
+
+        # logo opcional
+        if self.logo_path:
+            lbl_logo = QLabel(card); lbl_logo.setAlignment(Qt.AlignCenter)
+            try:
+                pm = QPixmap(self.logo_path)
+                if not pm.isNull():
+                    lbl_logo.setPixmap(pm.scaledToWidth(180, Qt.SmoothTransformation))
+                    box.addWidget(lbl_logo)
+            except Exception:
+                pass
+
+        title = QLabel(titulo, card); title.setObjectName("title"); title.setAlignment(Qt.AlignCenter)
+        subtitle = QLabel(subtitulo, card); subtitle.setObjectName("subtitle"); subtitle.setAlignment(Qt.AlignCenter)
+
+        # barra acento naranja debajo del título
+        bar = QFrame(card); bar.setFixedHeight(4); bar.setStyleSheet("background:#F08020; border-radius:2px;")
+
+        box.addWidget(title)
+        box.addWidget(bar)
+        box.addWidget(subtitle)
+
+        root.addStretch(); root.addWidget(card); root.addStretch()
+
+    # fondo con degradado claro azul → blanco
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        grad = QLinearGradient(0, 0, 0, self.height())
+        grad.setColorAt(0.0, QColor("#EEF3FB"))   # azul muy claro
+        grad.setColorAt(1.0, QColor("#F8FAFC"))   # casi blanco
+        p.fillRect(self.rect(), QBrush(grad))
+        p.end()
 
 ##############################################################################################
 # Clase Pasajero que representa los diferentes tipos de pasajeros que existen en el sistema
@@ -353,65 +413,77 @@ class VentanaPasaje(QWidget):
                         self.ve = VentanaEmergente("IMPRESORA", "", 4.5)
                         self.ve.show()
 
-            servicio = self.servicio_o_transbordo[0]
+            # crea overlay solo si habrá cobros digitales
+            needs_overlay = any(datos.total_pasajeros_tarjeta > 0 for _, datos, _, _, _ in pasajeros)
+            overlay = None
+            if needs_overlay:
+                overlay = OverlayPrepago(
+                    titulo="Cobro digital en curso",
+                    subtitulo=f"Ruta {self.ruta} • Tramo {self.tramo}",
+                    logo_path="/home/pi/Urban_Urbano/Imagenes/logo.png"  # pon aquí tu ruta del logo
+                )
+                overlay.show(); overlay.raise_(); QApplication.processEvents()
 
-            if servicio in ['SER', 'TRA']:
-                for tipo, datos, tipo_num, setting, precio in pasajeros:
-                    # 1) Efectivo de este tipo
-                    if datos.total_pasajeros > 0:
-                        imprimir_y_guardar(tipo, datos, tipo_num, setting, servicio)
+            try:
+                servicio = self.servicio_o_transbordo[0]
+                if servicio in ['SER', 'TRA']:
+                    for tipo, datos, tipo_num, setting, precio in pasajeros:
+                        # efectivo
+                        if datos.total_pasajeros > 0:
+                            imprimir_y_guardar(tipo, datos, tipo_num, setting, servicio)
+                        # HCE: uno por ventana
+                        total_hce = datos.total_pasajeros_tarjeta
+                        for _ in range(total_hce):
+                            vg.modo_nfcCard = False
+                            try:
+                                getattr(vg, "nfc_close_all", lambda: None)()
+                            finally:
+                                vg.nfc_closed_for_hce = True
+                            time.sleep(0.8)
 
-                    # 2) HCE/Digital de este tipo (uno por ventana)
-                    total_hce = datos.total_pasajeros_tarjeta
-                    print("El total de HCE es: ", total_hce)
-                    for _ in range(total_hce):
-                        # pausa lector y suelta libnfc
-                        vg.modo_nfcCard = False
-                        try:
-                            getattr(vg, "nfc_close_all", lambda: None)()
-                        finally:
-                            vg.nfc_closed_for_hce = True  # evita que el lector vuelva a cerrar
-                        time.sleep(0.8)  # margen realista para liberar el PN532
-
-                        ventana = VentanaPrepago(
-                            tipo=tipo, tipo_num=tipo_num, setting=setting,
-                            total_hce=1, precio=precio, id_tarifa=self.id_tabla,
-                            geocerca=int(str(self.settings.value('geocerca')).split(",")[0]),
-                            servicio=("n" if servicio == "SER" else "t"),
-                            origen=self.origen, destino=self.destino
-                        )
-                        ventana.setGeometry(0, 0, 800, 480)
-                        ventana.setWindowFlags(Qt.FramelessWindowHint)
-
-                        r = ventana.mostrar_y_esperar()
-                        time.sleep(1)
-
-                        if not r['hecho']:
-                            if r['pagado_efectivo']:
-                                imprimir_y_guardar(tipo, datos, tipo_num, setting, servicio, 1)
-                                continue
-                            break  # aborta solo la tanda HCE de este tipo
-
-                        # HCE OK: imprime boleto
-                        if servicio == "SER":
-                            hecho = imprimir_boleto_normal_pasaje(
-                                str(r['folio']), r['fecha'], r['hora'], str(self.Unidad),
-                                tipo, str(precio), str(self.ruta), str(self.tramo)
+                            ventana = VentanaPrepago(
+                                tipo=tipo, tipo_num=tipo_num, setting=setting,
+                                total_hce=1, precio=precio, id_tarifa=self.id_tabla,
+                                geocerca=int(str(self.settings.value('geocerca')).split(",")[0]),
+                                servicio=("n" if servicio == "SER" else "t"),
+                                origen=self.origen, destino=self.destino,
+                                parent=overlay  # <—— clave: hijo del overlay
                             )
-                        else:
-                            hecho = imprimir_boleto_con_qr_pasaje(
-                                str(r['folio']), r['fecha'], r['hora'], str(self.Unidad),
-                                tipo, str(precio), str(self.ruta), str(self.tramo),
-                                self.servicio_o_transbordo
-                            )
+                            # tamaño/posición opcional
+                            ventana.setGeometry(0, 0, 800, 480)
 
-                        if not hecho:
-                            insertar_estadisticas_boletera(
-                                str(self.Unidad), fecha_estadistica, hora_estadistica,
-                                "BMI", f"{'S' if servicio=='SER' else 'T'}{tipo[0]}"
-                            )
-                            self.ve = VentanaEmergente("IMPRESORA", "", 4.5)
-                            self.ve.show()
+                            r = ventana.mostrar_y_esperar()
+                            time.sleep(1)
+
+                            if not r['hecho']:
+                                if r['pagado_efectivo']:
+                                    imprimir_y_guardar(tipo, datos, tipo_num, setting, servicio, 1)
+                                    continue
+                                break
+
+                            # impresión tras HCE OK (igual que ya tenías)
+                            if servicio == "SER":
+                                hecho = imprimir_boleto_normal_pasaje(
+                                    str(r['folio']), r['fecha'], r['hora'], str(self.Unidad),
+                                    tipo, str(precio), str(self.ruta), str(self.tramo)
+                                )
+                            else:
+                                hecho = imprimir_boleto_con_qr_pasaje(
+                                    str(r['folio']), r['fecha'], r['hora'], str(self.Unidad),
+                                    tipo, str(precio), str(self.ruta), str(self.tramo),
+                                    self.servicio_o_transbordo
+                                )
+                            if not hecho:
+                                insertar_estadisticas_boletera(
+                                    str(self.Unidad), fecha_estadistica, hora_estadistica,
+                                    "BMI", f"{'S' if servicio=='SER' else 'T'}{tipo[0]}"
+                                )
+                                self.ve = VentanaEmergente("IMPRESORA", "", 4.5)
+                                self.ve.show()
+            finally:
+                if overlay:
+                    overlay.close()
+                    overlay.deleteLater()
 
             vg.modo_nfcCard = True
             time.sleep(0.2)

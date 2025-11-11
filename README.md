@@ -5,6 +5,11 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 
 Linea cronológica:
 
+- v3.66:
+  - Ahora ya se pueden ver los ultimos folios de venta digital y efectivo en la pantalla de corte.
+  - Se agregaron nuevos candados a la lectura de la tarjeta en los valores de nombre, tipo y vigencia cuando sea "IN".
+  - Se agrego una nueva mejora del .so donde se corrige el problema de que el nombre puede venir en "IN".
+  - Se optimizaron los tiempos del archivo de prepago y blinka para que el lector NFC pueda detectar celulares con mayor rapidez.
 - v3.65:
   - Se modifico el archivo .so para que al consultar solo una funcion 'ev2PackInfo' se obtenga toda la informacion de la tarjeta.
   - Se arreglo el bug de que las ventanas de prepago a veces no se abrian cuando se escogian muchas y que la lectura de tarjetas al cerrar el turno ya no funcionaba.

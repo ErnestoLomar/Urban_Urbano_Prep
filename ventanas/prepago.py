@@ -7,7 +7,7 @@ from time import strftime
 
 # Qt
 from PyQt5.QtWidgets import QMainWindow, QMessageBox
-from PyQt5.QtCore import QEventLoop, QTimer, QThread, pyqtSignal, QSettings, QWaitCondition, QMutex
+from PyQt5.QtCore import QEventLoop, QTimer, QThread, pyqtSignal, QSettings, QWaitCondition, QMutex, Qt
 from PyQt5 import uic
 from PyQt5.QtGui import QMovie
 
@@ -64,8 +64,8 @@ GIF_CARGANDO = "/home/pi/Urban_Urbano/Imagenes/cargando.gif"
 GIF_PAGADO = "/home/pi/Urban_Urbano/Imagenes/pagado.gif"
 
 # Tiempo total de espera para detección (segundos)
-DETECCION_TIMEOUT_S = 4
-DETECCION_INTERVALO_S = 0.015  # evita busy-wait
+DETECCION_TIMEOUT_S = 1.2
+DETECCION_INTERVALO_S = 0.005  # evita busy-wait
 
 # Reintentos de inicio PN532
 PN532_INIT_REINTENTOS = 10
@@ -73,7 +73,7 @@ PN532_INIT_INTERVALO_S = 0.05
 
 # Reintentos de interconexión con HCE
 HCE_REINTENTOS = 12
-HCE_REINTENTO_INTERVALO_S = 0.06
+HCE_REINTENTO_INTERVALO_S = 0.02
 
 # APDU Select AID (HCE App) — ajusta a tu AID real
 SELECT_AID_APDU = bytearray([
@@ -144,7 +144,7 @@ class HCEWorker(QThread):
             
             # reset preventivo antes de begin()
             self.pn532_hard_reset()
-            time.sleep(0.12)
+            time.sleep(0.06)
 
             intentos = 0
             versiondata = None
@@ -211,7 +211,6 @@ class HCEWorker(QThread):
             logger.debug(f"Buzzer ERR error: {e}")
 
     def _enviar_apdu(self, data_bytes, *, rearm=True):
-        """Envía APDU. Si falla y rearm=True, re-detecta y re-select una sola vez."""
         try:
             with vg.pn532_lock:
                 ok, resp = self.nfc.inDataExchange(bytearray(data_bytes))
@@ -224,8 +223,7 @@ class HCEWorker(QThread):
             return False, b""
 
         logger.info("Rearme ISO-DEP: re-detección y re-SELECT")
-        if self._detectar_dispositivo(timeout_s=1.8):
-            # SELECT directo SIN rearmar para evitar bucle
+        if self._detectar_dispositivo(timeout_s=0.6):  # antes 1.8
             ok_sel, r_sel = self._select_aid_low()
             if ok_sel and len(r_sel) >= 2 and r_sel[-2:] == b"\x90\x00":
                 try:
@@ -241,15 +239,12 @@ class HCEWorker(QThread):
         while self.running and (time.time() - inicio) < timeout_s:
             try:
                 with vg.pn532_lock:
-                    ok = self.nfc.inListPassiveTarget(timeout=1.2)
+                    # Antes: timeout=1.2 + read_uid() costoso
+                    # ok = self.nfc.inListPassiveTarget(timeout=1.2)
+                    ok = self.nfc.inListPassiveTarget(timeout=0.12)
                     if ok:
-                        try:
-                            self.contador_sin_dispositivo = 0
-                            uid = self.nfc.read_uid(timeout=0.2)
-                            if uid:
-                                logger.info(f"UID detectado: {uid.hex().upper()}")
-                        except Exception:
-                            pass
+                        # no llames read_uid() aquí; consume tiempo
+                        self.contador_sin_dispositivo = 0
                         return True
             except Exception as e:
                 logger.debug(f"detección error: {e}")
@@ -267,15 +262,13 @@ class HCEWorker(QThread):
         return sw == b"\x90\x00"
     
     def _select_aid_low(self):
-        """SELECT AID sin rearmar. Refresca Tg con 0x4A y espera."""
         try:
             with vg.pn532_lock:
-                # refresca Tg para evitar target stale
-                self.nfc.refresh_target(timeout=1.0)
+                self.nfc.refresh_target(timeout=0.3)  # antes 1.0
         except Exception:
             pass
 
-        time.sleep(0.18)  # antes 0.12 → da tiempo al stack ISO-DEP
+        time.sleep(0.04)  # antes 0.18
 
         try:
             with vg.pn532_lock:
@@ -285,11 +278,10 @@ class HCEWorker(QThread):
             return False, b""
 
         if not ok or len(r) < 2:
-            time.sleep(0.18)
+            time.sleep(0.04)  # antes 0.18
             try:
                 with vg.pn532_lock:
-                    # reintento corto con Tg refrescado otra vez
-                    self.nfc.refresh_target(timeout=0.6)
+                    self.nfc.refresh_target(timeout=0.3)
                     ok, r = self.nfc.inDataExchange(SELECT_AID_APDU)
             except Exception as e:
                 logger.error(f"SELECT low retry error: {e}")
@@ -433,7 +425,7 @@ class HCEWorker(QThread):
                     actualizar_estado_venta_digital_revisado("OK", folio_venta_digital, vg.folio_asignacion)
                     logger.info("Estado de venta actualizado a OK.")
 
-                    time.sleep(1)
+                    #time.sleep(1)
                     self._buzzer_ok()
                     self.pagados += 1
                     self.actualizar_settings.emit({
@@ -484,8 +476,11 @@ class HCEWorker(QThread):
 
 # === Ventana Principal ===
 class VentanaPrepago(QMainWindow):
-    def __init__(self, tipo=None, tipo_num=None, setting=None, total_hce=1, precio=0.0, id_tarifa=None, geocerca=None, servicio=None, origen=None, destino=None):
-        super().__init__()
+    def __init__(self, tipo=None, tipo_num=None, setting=None, total_hce=1, precio=0.0, id_tarifa=None, geocerca=None, servicio=None, origen=None, destino=None, parent=None):
+        super().__init__(parent)
+        # que siempre quede por encima del overlay
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint)
+
         self.total_hce = total_hce
         self.tipo = tipo
         self.tipo_num = tipo_num
@@ -594,6 +589,9 @@ class VentanaPrepago(QMainWindow):
             msg.setWindowTitle("Error NFC")
             msg.setText(mensaje)
             msg.setStandardButtons(QMessageBox.Ok)
+            msg.setWindowModality(Qt.ApplicationModal)
+            msg.setWindowFlags(msg.windowFlags() | Qt.WindowStaysOnTopHint)
+            msg.raise_(); msg.activateWindow()
             msg.exec_()
         except Exception as e:
             logger.debug(f"No se pudo mostrar QMessageBox: {e}")
@@ -649,10 +647,10 @@ class VentanaPrepago(QMainWindow):
         msg.setWindowTitle("Pago Exitoso")
         msg.setText("El pago se realizó exitosamente.")
         msg.setStandardButtons(QMessageBox.Ok)
+        msg.setWindowModality(Qt.ApplicationModal)
+        msg.setWindowFlags(msg.windowFlags() | Qt.WindowStaysOnTopHint)
+        msg.raise_(); msg.activateWindow()
         msg.exec_()
-        self.worker.mutex.lock()
-        self.worker.cond.wakeAll()
-        self.worker.mutex.unlock()
 
     def restaurar_cargando(self):
         self.label_info.setStyleSheet("color: black;")

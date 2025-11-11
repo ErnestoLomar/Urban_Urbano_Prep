@@ -35,7 +35,7 @@ from queries import obtener_datos_aforo, insertar_estadisticas_boletera
 from tickets_usados import insertar_ticket_usado, verificar_ticket_completo, verificar_ticket
 import variables_globales as vg
 
-setattr(vg, "nfc_closed_for_hce", False) 
+setattr(vg, "nfc_closed_for_hce", False)
 
 # -------------------- Política de reset NFC --------------------
 _NFC_MAX_FALLOS_CONSECUTIVOS = 3
@@ -92,24 +92,19 @@ class LeerTarjetaWorker(QObject):
         try:
             self.lib = ctypes.cdll.LoadLibrary('/home/pi/Urban_Urbano/qworkers/libernesto.so')
 
-            # las funciones devuelven punteros que luego liberamos con free_str
+            # funciones que devuelven punteros (char*) -> liberar con free_str
             self.lib.ev2IsPresent.restype = ctypes.c_void_p
             self.lib.tipoTiscEV2.restype  = ctypes.c_void_p
             self.lib.obtenerVigencia.restype = ctypes.c_void_p
             self.lib.ev2PackInfo.argtypes = []
             self.lib.ev2PackInfo.restype = ctypes.c_void_p
 
-            # free_str(ptr) libera la cadena asignada por la librería
+            # free_str(ptr)
             self.lib.free_str.argtypes = [ctypes.c_void_p]
             self.lib.free_str.restype  = None
+
+            # cierre global
             self.lib.nfc_close_all.restype = None
-
-
-            # 👉 expón un cerrador reutilizable
-            try:
-                vg.nfc_close_all = self.lib.nfc_close_all
-            except Exception:
-                pass
 
         except Exception as e:
             print(e)
@@ -160,7 +155,7 @@ class LeerTarjetaWorker(QObject):
         if self._nfc_fallos >= _NFC_MAX_FALLOS_CONSECUTIVOS and (now - self._nfc_ultimo_reset_ts) >= _NFC_RESET_COOLDOWN_S:
             self.pn532_hard_reset()
             self._nfc_ultimo_reset_ts = now
-            self._nfc_fallos = 0  # limpia contador tras reset
+            self._nfc_fallos = 0
 
     def _cstr(self, ptr):
         if not ptr:
@@ -191,9 +186,9 @@ class LeerTarjetaWorker(QObject):
             minuto=int(lista[1])
             segundo=int(lista[2])
             h1 = datetime.strptime(hora1, formato)
-            dh = timedelta(hours=hora) 
-            dm = timedelta(minutes=minuto)          
-            ds = timedelta(seconds=segundo) 
+            dh = timedelta(hours=hora)
+            dm = timedelta(minutes=minuto)
+            ds = timedelta(seconds=segundo)
             resultado1 =h1 + ds
             resultado2 = resultado1 + dm
             resultado = resultado2 + dh
@@ -215,22 +210,19 @@ class LeerTarjetaWorker(QObject):
                 next_poll = now + poll_interval
 
                 try:
-                    # Atiende reset solicitado por UI externa
-                    if vg.pn532_reset_requested:
+                    # Reset solicitado por UI externa
+                    if getattr(vg, "pn532_reset_requested", False):
                         self.pn532_hard_reset()
                         vg.pn532_reset_requested = False
                         self._nfc_fallos = 0
-                    
-                    # si volvió a modo lector, limpia el latch
+
+                    # si volvió a modo lector, limpia el latch de cierre
                     if vg.modo_nfcCard and getattr(vg, "nfc_closed_for_hce", False):
                         vg.nfc_closed_for_hce = False
-
-                    print("Hilo LeerTarjetaWorker: ", threading.current_thread().name)
 
                     # -------------------- NFC --------------------
                     if vg.modo_nfcCard:
                         try:
-                            print("modo_nfcCard: ", vg.modo_nfcCard)
                             # Una sola llamada: UID|TIPO|VIGENCIA(17)|NOMBRE(24)
                             pack = self._cstr(self.lib.ev2PackInfo())
                         except Exception as e:
@@ -256,23 +248,29 @@ class LeerTarjetaWorker(QObject):
                             continue
 
                         csn = (csn or "").strip()
-                        print("CSN: ", csn)
                         tipo = (tipo or "").strip()
-                        print("Tipo: ", tipo)
                         vig = (vig or "").strip()
-                        print("Vigencia: ", vig)
                         nombre = (nombre or "").strip()
+
+                        print("CSN: ", csn)
+                        print("Tipo: ", tipo)
+                        print("Vigencia: ", vig)
                         print("Nombre: ", nombre)
 
-                        # Lectura incompleta
-                        if "IN" in csn.upper():
-                            logging.info("Lectura NFC incompleta (csn='IN').")
+                        # Fallos explícitos
+                        if "IN" in csn.upper() or "IN" in tipo.upper() or "IN" in vig.upper() or "IN" in nombre.upper():
+                            logging.info("Lectura NFC incompleta (algún campo='IN').")
                             self._nfc_fallos += 1
                             self._maybe_reset_nfc()
                             next_poll = max(next_poll, time.monotonic() + 0.12)
+                            GUI = VentanaEmergente("TARJETAINVALIDA", "")
+                            GUI.show()
+                            self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
+                            time.sleep(2)
+                            GUI.close()
                             continue
 
-                        # Backoff si no hay tag o UID no esperado
+                        # Backoff si UID no esperado
                         if not csn:
                             next_poll = max(next_poll, time.monotonic() + 0.12)
                             continue
@@ -294,13 +292,12 @@ class LeerTarjetaWorker(QObject):
                         hora = str(fecha_actual[(int(indice) - 2):(int(indice) + 6)]).replace(":", "")
 
                         try:
-                            tipo = (tipo or "")[:2]  # "KI", "DE", "IN", etc.
-                            if tipo == "KI":
-                                # ev2PackInfo ya trae vig(17) y nombre(24)
+                            tipo2 = (tipo or "")[:2]  # "KI", "DE", "IN", etc.
+                            if tipo2 == "KI":
                                 vig = vig or ""
-                                nombre = nombre or ""
-                                datos_completos_tarjeta = f"{vig}{nombre}"  # 17+24 = 41, como antes para logs
-                                vigenciaTarjeta = vig[:12]                  # YYMMDDhhmmss (12)
+                                nombre_limpio = (nombre or "").replace("*", " ").replace(".", " ").replace("-", " ").replace("_", " ")
+                                datos_completos_tarjeta = f"{vig}{nombre}"
+                                vigenciaTarjeta = vig[:12]  # YYMMDDhhmmss
                                 print("Datos completos de la tarjeta: ", datos_completos_tarjeta)
 
                                 # Validación de vigencia
@@ -310,10 +307,7 @@ class LeerTarjetaWorker(QObject):
                                     if vigenciaActual <= vigenciaTarjeta:
                                         if len(csn) == 14:
                                             vg.vigencia_de_tarjeta = vigenciaTarjeta
-
-                                            # Extrae número y nombre del operador como hacía tu código
                                             num_operador = vig[12:17] if len(vig) >= 17 else ""
-                                            nombre_limpio = nombre.replace("*", " ").replace(".", " ").replace("-", " ").replace("_", " ")
 
                                             if str(self.settings.value('ventana_actual')) not in ("chofer", "corte", "enviar_vuelta", "cerrar_turno"):
                                                 if len(vg.numero_de_operador_inicio) > 0 or len(self.settings.value('numero_de_operador_inicio')) > 0:
@@ -364,12 +358,12 @@ class LeerTarjetaWorker(QObject):
                             self._maybe_reset_nfc()
                             continue
                     else:
-                        # Solo una vez por transición
+                        # cerrar NFC una sola vez al ir a modo HCE u otro
                         if not getattr(vg, "nfc_closed_for_hce", False):
                             try:
                                 self.lib.nfc_close_all()
                                 vg.nfc_closed_for_hce = True
-                                time.sleep(0.1)  # da tiempo al bus
+                                time.sleep(0.1)
                             except Exception as e:
                                 print("Error al cerrar NFC: ", e)
 

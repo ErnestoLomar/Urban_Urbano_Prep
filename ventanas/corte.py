@@ -103,11 +103,16 @@ class corte(QWidget):
 
             try:
                 # Últimos folios (efectivo/digital)
-                folio_ultimo_efectivo = obtener_ultimo_folio_de_item_venta()[1]
-                folio_ultimo_digital = obtener_ultimo_folio_de_venta_digital()[1]
+                folio_ultimo_efectivo = obtener_ultimo_folio_de_item_venta()
+                folio_ultimo_digital = obtener_ultimo_folio_de_venta_digital()
 
-                self.label_ultimo_folio_efectivo.setText("Ultimo folio venta efectivo: "+str(folio_ultimo_efectivo))
-                self.label_ultimo_folio_digital.setText("Ultimo folio venta digital: "+str(folio_ultimo_digital))
+                if folio_ultimo_efectivo is None:
+                    folio_ultimo_efectivo = (0, 0)
+                if folio_ultimo_digital is None:
+                    folio_ultimo_digital = (0, 0)
+
+                self.label_ultimo_folio_efectivo.setText("Ultimo folio venta efectivo: "+str(folio_ultimo_efectivo[1]))
+                self.label_ultimo_folio_digital.setText("Ultimo folio venta digital: "+str(folio_ultimo_digital[1]))
             except Exception as e:
                 print("Error al obtener los ultimos folios de venta: "+str(e))
                 logging.info("Error al obtener los ultimos folios de venta: "+str(e))
