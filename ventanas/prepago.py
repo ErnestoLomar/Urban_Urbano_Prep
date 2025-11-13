@@ -1,15 +1,23 @@
 # -*- coding: utf-8 -*-
+"""
+Ventana de prepago con HCE + PN532.
+Diseño: header limpio (desde .ui) y uso de GIF para estado (cargando / pagado).
+QMessageBox siempre al frente y modal.
+"""
+
 import sys
 import time
-import binascii
 import logging
 from time import strftime
 
 # Qt
 from PyQt5.QtWidgets import QMainWindow, QMessageBox
-from PyQt5.QtCore import QEventLoop, QTimer, QThread, pyqtSignal, QSettings, QWaitCondition, QMutex, Qt
+from PyQt5.QtCore import (
+    QEventLoop, QTimer, QThread, pyqtSignal, QSettings,
+    QWaitCondition, QMutex, Qt, QEvent
+)
 from PyQt5 import uic
-from PyQt5.QtGui import QMovie
+from PyQt5.QtGui import QMovie, QPixmap
 
 # Blinka adapter PN532
 import board
@@ -61,7 +69,8 @@ except Exception as e:
 SETTINGS_PATH = "/home/pi/Urban_Urbano/ventanas/settings.ini"
 UI_PATH = "/home/pi/Urban_Urbano/ui/prepago.ui"
 GIF_CARGANDO = "/home/pi/Urban_Urbano/Imagenes/cargando.gif"
-GIF_PAGADO = "/home/pi/Urban_Urbano/Imagenes/pagado.gif"
+GIF_PAGADO   = "/home/pi/Urban_Urbano/Imagenes/pagado.gif"
+PNG_FALLBACK = "/home/pi/Urban_Urbano/Imagenes/sin-contacto.png"
 
 # Tiempo total de espera para detección (segundos)
 DETECCION_TIMEOUT_S = 1.2
@@ -74,6 +83,10 @@ PN532_INIT_INTERVALO_S = 0.05
 # Reintentos de interconexión con HCE
 HCE_REINTENTOS = 12
 HCE_REINTENTO_INTERVALO_S = 0.02
+
+
+PN532_BACKOFF_INICIAL_S   = 0.20
+PN532_BACKOFF_MAX_S       = 1.50
 
 # APDU Select AID (HCE App) — ajusta a tu AID real
 SELECT_AID_APDU = bytearray([
@@ -110,8 +123,6 @@ class HCEWorker(QThread):
         self.cond = QWaitCondition()
         self.settings = QSettings(SETTINGS_PATH, QSettings.IniFormat)
 
-        # PN532 por Blinka: CE0 (BOARD24) y RESET en D27 (BOARD13)
-        # self.nfc = Pn532Blinka(cs_pin=board.CE0, rst_pin=board.D27)
         self.nfc = None
 
     def pn532_hard_reset(self):
@@ -126,54 +137,75 @@ class HCEWorker(QThread):
     # Inicialización PN532
     # -------------------------
     def iniciar_hce(self):
-        try:
-            # Toma control exclusivo del PN532
+        """Inicializa el PN532 con reintentos mientras self.running sea True.
+        No cierra la UI ni marca running=False en fallos; solo informa por señal."""
+        backoff = PN532_BACKOFF_INICIAL_S
+
+        while self.running:
+            # 1) Acquire con espera
             if not vg.pn532_acquire("HCE", timeout=3.0):
-                self.error_inicializacion.emit("PN532 ocupado. Intente de nuevo.")
-                self.running = False
-                return
-            
-            # instancia aquí
+                self.error_inicializacion.emit("PN532 ocupado. Reintentando…")
+                time.sleep(backoff)
+                backoff = min(backoff * 1.5, PN532_BACKOFF_MAX_S)
+                continue
+
+            # 2) Instanciar
             try:
                 with vg.pn532_lock:
                     self.nfc = Pn532Blinka(cs_pin=board.CE0, rst_pin=board.D27)
             except Exception as e:
-                self.error_inicializacion.emit(f"No se pudo abrir PN532: {e}")
-                self.running = False
-                return
-            
-            # reset preventivo antes de begin()
-            self.pn532_hard_reset()
+                self.error_inicializacion.emit(f"No se pudo abrir PN532: {e}. Reintentando…")
+                try: vg.pn532_release()
+                except Exception: pass
+                time.sleep(backoff)
+                backoff = min(backoff * 1.5, PN532_BACKOFF_MAX_S)
+                continue
+
+            # 3) Reset preventivo
+            try:
+                self.pn532_hard_reset()
+            except Exception:
+                pass
             time.sleep(0.06)
 
-            intentos = 0
-            versiondata = None
-            while intentos < PN532_INIT_REINTENTOS and self.running:
+            # 4) begin + SAMConfig con varios intentos rápidos
+            ok = False
+            for intento in range(PN532_INIT_REINTENTOS):
+                if not self.running:
+                    break
                 try:
                     with vg.pn532_lock:
                         self.nfc.begin()
-                        versiondata = self.nfc.getFirmwareVersion()
-                        logger.info(f"Firmware PN532: {versiondata}")
+                        versiondata = self.nfc.getFirmwareVersion()  # tuple o int ≠ None
                         self.nfc.SAMConfig()
                     if versiondata:
-                        logger.info("PN532 inicializado correctamente.")
+                        logger.info(f"PN532 OK: {versiondata}")
+                        ok = True
                         break
                 except Exception as e:
-                    logger.warning(f"Intento {intentos + 1}/{PN532_INIT_REINTENTOS} - Error iniciando PN532: {e}")
-                    self.pn532_hard_reset()
+                    # feedback no invasivo
+                    self.error_inicializacion.emit(
+                        f"Inicializando lector ({intento+1}/{PN532_INIT_REINTENTOS})…"
+                    )
+                    try: self.pn532_hard_reset()
+                    except Exception: pass
+                    time.sleep(PN532_INIT_INTERVALO_S)
 
-                intentos += 1
-                time.sleep(PN532_INIT_INTERVALO_S)
+            if ok:
+                # listo; sal del bucle y sigue run()
+                self.error_inicializacion.emit("Lector NFC listo.")
+                return
 
-            if not versiondata:
-                self.pn532_hard_reset()
-                self.error_inicializacion.emit("El lector NFC no responde. Acepte efectivo.")
-                self.running = False
+            # 5) Falló el bloque; liberar y reintentar con backoff creciente
+            try:
+                vg.pn532_release()
+            except Exception:
+                pass
+            self.error_inicializacion.emit("El lector no responde. Reintentando…")
+            time.sleep(backoff)
+            backoff = min(backoff * 1.5, PN532_BACKOFF_MAX_S)
 
-        except Exception as e:
-            logger.exception(f"Error fatal al iniciar el lector NFC: {e}")
-            self.error_inicializacion.emit("No se pudo iniciar el lector NFC")
-            self.running = False
+        # Si se sale por self.running=False, no hagas nada más aquí.
 
     def _recrear_pn532(self, recrear_spi=True, reintentos=5, pausa=0.06):
         """Recrea la instancia y vuelve a hacer begin/SAMConfig tras un reset."""
@@ -199,7 +231,7 @@ class HCEWorker(QThread):
     def _buzzer_ok(self):
         try:
             if HUB:
-                HUB.buzzer_beep(200)  # 200 ms
+                HUB.buzzer_beep(200)
         except Exception as e:
             logger.debug(f"Buzzer OK error: {e}")
 
@@ -392,7 +424,7 @@ class HCEWorker(QThread):
                         continue
 
                     partes = self._parsear_respuesta_celular(back)
-                    logger.info(f"Respuesta celular (partes): {partes}")    
+                    logger.info(f"Respuesta celular (partes): {partes}")
                     datos = self._validar_trama_ct(partes, folio_venta_digital)
                     if not datos:
                         self.pago_fallido.emit("Respuesta inválida del celular")
@@ -498,20 +530,58 @@ class VentanaPrepago(QMainWindow):
 
         uic.loadUi(UI_PATH, self)
 
+        # Botonera
         self.btn_pagar_con_efectivo.clicked.connect(self.pagar_con_efectivo)
+        self.btn_cancelar.clicked.connect(self.cancelar_transaccion)
+
+        # Texto principal
         self.label_tipo.setText(f"{self.tipo} - Precio: ${self.precio:.2f}")
 
-        self.movie = QMovie(GIF_CARGANDO)
-        self.label_icon.setMovie(self.movie)
-        self.movie.start()
+        # GIFs
+        self._setup_movies()
 
+        # Loop modal para mostrar y esperar
         self.loop = QEventLoop()
         self.destroyed.connect(self.loop.quit)
 
-        self.btn_cancelar.clicked.connect(self.cancelar_transaccion)
-
-        # (Sin inicializar GPIO aquí; el buzzer se maneja vía GPIOHub desde el worker)
+        # Worker
         self.worker = None
+
+    # ---------- GIF handling ----------
+    def _setup_movies(self):
+        try:
+            self.movie_loading = QMovie(GIF_CARGANDO)
+            self.movie_loading.setCacheMode(QMovie.CacheAll)
+            self.movie_loading.setSpeed(100)
+        except Exception:
+            self.movie_loading = None
+
+        try:
+            self.movie_success = QMovie(GIF_PAGADO)
+            self.movie_success.setCacheMode(QMovie.CacheAll)
+            self.movie_success.setSpeed(100)
+        except Exception:
+            self.movie_success = None
+
+        self.label_icon.installEventFilter(self)
+        self._apply_movie(self.movie_loading)
+
+    def _apply_movie(self, movie):
+        if movie and movie.isValid():
+            movie.setScaledSize(self.label_icon.size())
+            self.label_icon.setMovie(movie)
+            movie.start()
+        else:
+            self.label_icon.setPixmap(QPixmap(PNG_FALLBACK))
+            self.label_icon.setScaledContents(True)
+
+    def eventFilter(self, obj, ev):
+        if obj is self.label_icon and ev.type() == QEvent.Resize:
+            for m in (getattr(self, "movie_loading", None), getattr(self, "movie_success", None)):
+                if m and m.isValid():
+                    m.setScaledSize(self.label_icon.size())
+        return super().eventFilter(obj, ev)
+    # ----------------------------------
 
     def cancelar_transaccion(self):
         logger.info("Transacción HCE cancelada por el usuario.")
@@ -562,7 +632,8 @@ class VentanaPrepago(QMainWindow):
         self.close()
 
     def mostrar_y_esperar(self):
-        self.label_info.setText(f"Esperando cobros 1 de {self.total_hce}")
+        self.label_3.setText("Acerque el dispositivo para realizar el cobro")
+        self.label_info.setText("")
         self.iniciar_hce()
         self.show()
         self.loop.exec_()
@@ -583,19 +654,9 @@ class VentanaPrepago(QMainWindow):
         logger.warning(f"Error de inicialización: {mensaje}")
         self.label_info.setStyleSheet("color: red;")
         self.label_info.setText(mensaje)
-        try:
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Critical)
-            msg.setWindowTitle("Error NFC")
-            msg.setText(mensaje)
-            msg.setStandardButtons(QMessageBox.Ok)
-            msg.setWindowModality(Qt.ApplicationModal)
-            msg.setWindowFlags(msg.windowFlags() | Qt.WindowStaysOnTopHint)
-            msg.raise_(); msg.activateWindow()
-            msg.exec_()
-        except Exception as e:
-            logger.debug(f"No se pudo mostrar QMessageBox: {e}")
-        QTimer.singleShot(1000, self.close)
+        # Mantén el GIF de espera activo
+        self._apply_movie(self.movie_loading)
+        # Importante: NO QMessageBox y NO self.close() aquí
 
     def _actualizar_totales_settings(self, data: dict):
         try:
@@ -626,20 +687,15 @@ class VentanaPrepago(QMainWindow):
 
     def pago_exitoso(self, data):
         self.pagados += 1
-        logger.info(f"Cobro {self.pagados}/{self.total_hce} exitoso: {data['estado']}")
         self.label_info.setStyleSheet("color: green;")
         self.label_info.setText(f"Pagado {self.pagados}/{self.total_hce}")
-
-        self.movie.stop()
-        self.movie = QMovie(GIF_PAGADO)
-        self.label_icon.setMovie(self.movie)
-        self.movie.start()
+        self._apply_movie(self.movie_success)
 
         if self.pagados >= self.total_hce:
             self.exito_pago = {'hecho': True, 'pagado_efectivo': False, 'folio': data['folio'], 'fecha': data['fecha'], 'hora': data['hora']}
-            QTimer.singleShot(2000, self.close)
+            QTimer.singleShot(1200, self.close)
         else:
-            QTimer.singleShot(2000, self.restaurar_cargando)
+            QTimer.singleShot(1200, self.restaurar_cargando)
 
     def mostrar_mensaje_exito_bloqueante(self):
         msg = QMessageBox(self)
@@ -651,19 +707,21 @@ class VentanaPrepago(QMainWindow):
         msg.setWindowFlags(msg.windowFlags() | Qt.WindowStaysOnTopHint)
         msg.raise_(); msg.activateWindow()
         msg.exec_()
+        self.worker.mutex.lock()
+        self.worker.cond.wakeAll()
+        self.worker.mutex.unlock()
 
     def restaurar_cargando(self):
         self.label_info.setStyleSheet("color: black;")
-        self.label_info.setText(f"Esperando cobros {self.pagados + 1} de {self.total_hce}")
-        self.movie.stop()
-        self.movie = QMovie(GIF_CARGANDO)
-        self.label_icon.setMovie(self.movie)
-        self.movie.start()
+        self.label_3.setText("Acerque el dispositivo para realizar el cobro")
+        self._apply_movie(self.movie_loading)
 
     def pago_fallido(self, mensaje):
         logger.warning(f"Fallo: {mensaje}")
         self.label_info.setStyleSheet("color: red;")
         self.label_info.setText(mensaje)
+        # mantener GIF de espera
+        self._apply_movie(self.movie_loading)
 
     def cerrar_ventana(self):
         logger.info("Pago cancelado por el usuario.")
@@ -671,6 +729,7 @@ class VentanaPrepago(QMainWindow):
         if self.worker:
             self.worker.stop()
         self.pn532_hard_reset()
+        time.sleep(1.0)
         vg.modo_nfcCard = True
         self.close()
 
@@ -680,6 +739,18 @@ class VentanaPrepago(QMainWindow):
                 self.worker.stop()
         except Exception as e:
             logger.debug(f"closeEvent stop error: {e}")
+
+        # Detener y liberar GIFs
+        for m in (getattr(self, "movie_loading", None), getattr(self, "movie_success", None)):
+            try:
+                if m: m.stop()
+            except Exception:
+                pass
+        try:
+            self.label_icon.clear()
+        except Exception:
+            pass
+
         vg.modo_nfcCard = True
         vg.pn532_reset_requested = True
         self.loop.quit()

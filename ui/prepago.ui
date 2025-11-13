@@ -7,168 +7,288 @@
     <x>0</x>
     <y>0</y>
     <width>800</width>
-    <height>480</height>
+    <height>505</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>Prepago</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">background-color: rgb(255, 255, 255);</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <widget class="QLabel" name="label">
-    <property name="geometry">
-     <rect>
-      <x>0</x>
-      <y>0</y>
-      <width>801</width>
-      <height>481</height>
-     </rect>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">background-color: rgb(255, 255, 255);</string>
-    </property>
-    <property name="text">
-     <string/>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_icon">
-    <property name="geometry">
-     <rect>
-      <x>250</x>
-      <y>51</y>
-      <width>261</width>
-      <height>261</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string/>
-    </property>
-    <property name="pixmap">
-     <pixmap>../Imagenes/sin-contacto (2).png</pixmap>
-    </property>
-    <property name="scaledContents">
-     <bool>true</bool>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_3">
-    <property name="geometry">
-     <rect>
-      <x>20</x>
-      <y>321</y>
-      <width>761</width>
-      <height>51</height>
-     </rect>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">font: 75 16pt &quot;Roboto&quot;;</string>
-    </property>
-    <property name="text">
-     <string>Acerque el dispositivo para realizar el cobro</string>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_tipo">
-    <property name="geometry">
-     <rect>
-      <x>16</x>
-      <y>370</y>
-      <width>771</width>
-      <height>31</height>
-     </rect>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">font: 75 16pt &quot;Roboto&quot;;</string>
-    </property>
-    <property name="text">
-     <string>Menor: $10.00</string>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_info">
-    <property name="geometry">
-     <rect>
-      <x>20</x>
-      <y>10</y>
-      <width>361</width>
-      <height>71</height>
-     </rect>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">font: 75 16pt &quot;Roboto&quot;;</string>
-    </property>
-    <property name="text">
-     <string>Cobrado: 1 $0.00
-Por cobrar: 2 $10.0</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="btn_pagar_con_efectivo">
-    <property name="geometry">
-     <rect>
-      <x>280</x>
-      <y>410</y>
-      <width>231</width>
-      <height>51</height>
-     </rect>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">QPushButton {
-        background-color: #28a745;  /* Verde tipo éxito */
-        color: white;
-        border: none;
-        border-radius: 12px;
-        padding: 12px 24px;
-        font-size: 16px;
-        font-weight: bold;
-        letter-spacing: 1px;
-    }
-    QPushButton:hover {
-        background-color: #218838;
-    }
-    QPushButton:pressed {
-        background-color: #1e7e34;
-    }
-</string>
-    </property>
-    <property name="text">
-     <string>Pago con efectivo</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="btn_cancelar">
-    <property name="geometry">
-     <rect>
-      <x>650</x>
-      <y>410</y>
-      <width>131</width>
-      <height>51</height>
-     </rect>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">/* Aplica solo al botón con objectName &quot;btn_cancelar&quot; */
-QPushButton#btn_cancelar {
-    background-color: #dc3545;   /* Rojo tipo peligro */
-    color: white;
-    border: none;
-    border-radius: 12px;
-    padding: 12px 24px;
-    font-size: 16px;
-    font-weight: bold;
-    letter-spacing: 1px;
-}
-QPushButton#btn_cancelar:hover {
-    background-color: #c82333;
-}
-QPushButton#btn_cancelar:pressed {
-    background-color: #bd2130;
-}
-</string>
-    </property>
-    <property name="text">
-     <string>Cancelar</string>
-    </property>
-   </widget>
+   <property name="styleSheet">
+    <string notr="true">
+     QWidget#centralwidget { background: #F8FAFC; } /* slate-50 */
+     QLabel#titleHeader { color: #1850A0; font: 700 18pt &quot;Roboto&quot;; letter-spacing: 1px; }
+     QLabel#label_3 { font: 600 18pt &quot;Roboto&quot;; color: #0f172a; }         /* instrucción */
+     QLabel#label_tipo { font: 600 16pt &quot;Roboto&quot;; color: #334155; }       /* MENOR - Precio */
+     QLabel#label_info { font: 600 12pt &quot;Roboto&quot;; color: #334155; }
+     QFrame#header { background: #FFFFFF; border-bottom: 1px solid rgba(0,0,0,0.08); }
+     QPushButton#btn_pagar_con_efectivo {
+       background: #1850A0; color: #FFFFFF; border-radius: 12px; padding: 12px 24px;
+       font: 700 16pt &quot;Roboto&quot;;
+     }
+     QPushButton#btn_pagar_con_efectivo:hover { background: #104898; }
+     QPushButton#btn_pagar_con_efectivo:pressed { background: #0C3E85; }
+     QPushButton#btn_cancelar {
+       background: #dc3545; color: white; border-radius: 12px; padding: 12px 24px;
+       font: 700 16pt &quot;Roboto&quot;;
+     }
+     QPushButton#btn_cancelar:hover { background: #c82333; }
+     QPushButton#btn_cancelar:pressed { background: #bd2130; }
+    </string>
+   </property>
+   <layout class="QVBoxLayout" name="verticalLayout_root">
+    <item>
+     <widget class="QFrame" name="header">
+      <property name="frameShape">
+       <enum>QFrame::NoFrame</enum>
+      </property>
+      <layout class="QHBoxLayout" name="horizontalLayout_header">
+       <property name="leftMargin">
+        <number>16</number>
+       </property>
+       <property name="topMargin">
+        <number>8</number>
+       </property>
+       <property name="rightMargin">
+        <number>16</number>
+       </property>
+       <property name="bottomMargin">
+        <number>8</number>
+       </property>
+       <item>
+        <widget class="QLabel" name="logo">
+         <property name="minimumSize">
+          <size>
+           <width>36</width>
+           <height>36</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>36</width>
+           <height>36</height>
+          </size>
+         </property>
+         <property name="pixmap">
+          <pixmap>../../../../../../../home/pi/Urban_Urbano/Imagenes/logo_urban.png</pixmap>
+         </property>
+         <property name="scaledContents">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="titleHeader">
+         <property name="text">
+          <string>URBAN TAMPICO</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="header_spacer">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="sizeType">
+          <enum>QSizePolicy::Expanding</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>40</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="label_info">
+      <property name="text">
+       <string/>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QFrame" name="content">
+      <property name="frameShape">
+       <enum>QFrame::NoFrame</enum>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout_content">
+       <property name="leftMargin">
+        <number>20</number>
+       </property>
+       <property name="topMargin">
+        <number>10</number>
+       </property>
+       <property name="rightMargin">
+        <number>20</number>
+       </property>
+       <property name="bottomMargin">
+        <number>10</number>
+       </property>
+       <item>
+        <widget class="QWidget" name="horizontalWidget" native="true">
+         <property name="enabled">
+          <bool>true</bool>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>10</height>
+          </size>
+         </property>
+         <layout class="QHBoxLayout" name="horizontalLayout">
+          <item>
+           <spacer name="horizontalSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QLabel" name="label_icon">
+            <property name="minimumSize">
+             <size>
+              <width>240</width>
+              <height>240</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>260</width>
+              <height>260</height>
+             </size>
+            </property>
+            <property name="pixmap">
+             <pixmap>../../../../../../../home/pi/Urban_Urbano/Imagenes/sin-contacto.png</pixmap>
+            </property>
+            <property name="scaledContents">
+             <bool>true</bool>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="horizontalSpacer_2">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_3">
+         <property name="text">
+          <string>Acerque el dispositivo para realizar el cobro</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_tipo">
+         <property name="text">
+          <string>MENOR - Precio: $10.00</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayout_buttons">
+      <property name="leftMargin">
+       <number>24</number>
+      </property>
+      <property name="topMargin">
+       <number>8</number>
+      </property>
+      <property name="rightMargin">
+       <number>24</number>
+      </property>
+      <property name="bottomMargin">
+       <number>16</number>
+      </property>
+      <item>
+       <spacer name="spacer1">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_pagar_con_efectivo">
+        <property name="minimumSize">
+         <size>
+          <width>240</width>
+          <height>48</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>Pago con efectivo</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="spacer2">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_cancelar">
+        <property name="minimumSize">
+         <size>
+          <width>180</width>
+          <height>48</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>Cancelar</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
   </widget>
  </widget>
  <resources/>

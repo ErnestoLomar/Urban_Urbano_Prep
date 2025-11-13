@@ -5,6 +5,9 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 
 Linea cronológica:
 
+- v3.67:
+  - Se implemento en el archivo de prepago la funcionalidad de que no se muestren los mensajes de error en la pantalla de prepago y que no se cierre la ventana a menos que se pague el boleto con efectivo o se cancele el boleto.
+  - Nuevo diseño de la pantalla de prepago.
 - v3.66:
   - Ahora ya se pueden ver los ultimos folios de venta digital y efectivo en la pantalla de corte.
   - Se agregaron nuevos candados a la lectura de la tarjeta en los valores de nombre, tipo y vigencia cuando sea "IN".
