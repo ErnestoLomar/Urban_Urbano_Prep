@@ -1,7 +1,7 @@
 ##########################################
 # Autor: Ernesto Lomar
 # Fecha de creación: 12/04/2022
-# Ultima modificación: 16/08/2022
+# Ultima modificación: 24/11/2025
 #
 # Script de la ventana corte.
 #
@@ -16,7 +16,7 @@ from time import strftime
 import logging
 import time
 
-# Hub GPIO (BCM)
+# Hub de GPIO (BCM)
 from gpio_hub import GPIOHub, PINMAP
 
 # Librerías propias
@@ -40,6 +40,7 @@ try:
 except Exception as e:
     print("No se pudo inicializar GPIOHub: " + str(e))
     logging.info(e)
+
 
 class corte(QWidget):
 
@@ -75,7 +76,8 @@ class corte(QWidget):
     def cargar_datos(self):
         try:
             self.settings.setValue('ventana_actual', "corte")
-            # variables_globales.ventana_actual = "corte"
+            variables_globales.ventana_actual = VentanaActual.CERRAR_VUELTA
+
             self.label_head.setText(f"{self.idUnidad} {str(self.settings.value('servicio')[6:])}")  # Datos del servicio
 
             # Folio de viaje
@@ -95,8 +97,8 @@ class corte(QWidget):
                         self.label_operador.setText("Operador: ")
                         print("No hay nombre de operador")
             except Exception as e:
-                print("Error al obtener el nombre del operador: "+str(e))
-                logging.info("Error al obtener el nombre del operador: "+str(e))
+                print("Error al obtener el nombre del operador: " + str(e))
+                logging.info("Error al obtener el nombre del operador: " + str(e))
 
             # Versión software
             self.label_version_software.setText(variables_globales.version_del_software)
@@ -111,11 +113,11 @@ class corte(QWidget):
                 if folio_ultimo_digital is None:
                     folio_ultimo_digital = (0, 0)
 
-                self.label_ultimo_folio_efectivo.setText("Ultimo folio venta efectivo: "+str(folio_ultimo_efectivo[1]))
-                self.label_ultimo_folio_digital.setText("Ultimo folio venta digital: "+str(folio_ultimo_digital[1]))
+                self.label_ultimo_folio_efectivo.setText("Ultimo folio venta efectivo: " + str(folio_ultimo_efectivo[1]))
+                self.label_ultimo_folio_digital.setText("Ultimo folio venta digital: " + str(folio_ultimo_digital[1]))
             except Exception as e:
-                print("Error al obtener los ultimos folios de venta: "+str(e))
-                logging.info("Error al obtener los ultimos folios de venta: "+str(e))
+                print("Error al obtener los ultimos folios de venta: " + str(e))
+                logging.info("Error al obtener los ultimos folios de venta: " + str(e))
 
             # EFECTIVO
             self.label_cantidad_boletos_estud.setText(f"{str(self.settings.value('info_estudiantes')).split(',')[0]}")
@@ -180,9 +182,9 @@ class corte(QWidget):
             csn_init = str(self.settings.value('csn_chofer'))
             self.settings.setValue('respaldo_csn_chofer', csn_init)
 
-            # ---------------------------
+            # ---------------------------#
             #   Lógica de cierre SIEMPRE
-            # ---------------------------
+            # ---------------------------#
             total_de_boletos_db = ""
             total_aforo_efectivo = 0
             total_aforo_digital = 0
@@ -252,6 +254,7 @@ class corte(QWidget):
             self.close_signal_pasaje.emit()
             variables_globales.ventana_actual = VentanaActual.CERRAR_TURNO
             variables_globales.folio_asignacion = 0
+            #self.settings.setValue('ventana_actual', "cerrar_turno")
 
             self.settings.setValue('origen_actual', "")
             self.settings.setValue('folio_de_viaje', "")

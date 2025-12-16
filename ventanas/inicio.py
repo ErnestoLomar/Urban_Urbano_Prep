@@ -47,6 +47,7 @@ from queries import (
     actualizar_socket,
 )
 from enviar_vuelta import EnviarVuelta
+from emergentes import VentanaEmergente  # para mostrar mensajes desde hilos
 
 # Instancia global del HUB
 try:
@@ -80,6 +81,7 @@ except Exception as e:
     logging.info("Error al instanciar el objeto de la clase Principal_Modem: " + str(e))
     print("Error al instanciar el objeto de la clase Principal_Modem: " + str(e))
 
+
 class Ventana(QWidget):
 
     def __init__(self):
@@ -110,6 +112,9 @@ class Ventana(QWidget):
             self.hora_actualizada = False
             self.bandera_gps = False
 
+            # Referencias a ventanas emergentes para que no las destruya el GC
+            self._emergentes = []
+
             # Número de serie y versión de tablilla
             respuesta = cargar_num_serie()
             self.label_num_ser.setText(respuesta['state_num_serie'])
@@ -132,7 +137,7 @@ class Ventana(QWidget):
 
             # Hilos
             self.runLeerMinicom()        # Hilo minicom
-            self.runLeerTarjeta()        # Hilo tarjeta
+            self.runLeerTarjeta()        # Hilo tarjeta (NFC + QR)
             self.runActualizarIconos()   # Hilo iconos
         except Exception as e:
             logging.info("Error al iniciar la ventana principal: " + str(e))
@@ -336,10 +341,32 @@ class Ventana(QWidget):
             self.worker.finished.connect(self.worker.deleteLater)
             self.thread.finished.connect(self.thread.deleteLater)
             self.worker.progress.connect(self.reportProgressTarjeta)
+            # emergentes desde hilos NFC/QR
+            self.worker.mensaje.connect(self.mostrarEmergente)
             self.thread.start()
         except Exception as e:
             logging.info("Error al iniciar el hilo de tarjeta: " + str(e))
             print("Error al iniciar el hilo de tarjeta: " + str(e))
+
+    def mostrarEmergente(self, titulo: str, mensaje: str, duracion: float):
+        """Muestra VentanaEmergente desde el hilo principal, usando 'duracion'."""
+        try:
+            # pasamos la duración al constructor
+            gui = VentanaEmergente(titulo, mensaje, duracion)
+            gui.show()
+            self._emergentes.append(gui)
+
+            # cuando la ventana se destruya, la quitamos de la lista
+            def _on_destroyed(*args, **kwargs):
+                try:
+                    self._emergentes.remove(gui)
+                except ValueError:
+                    pass
+
+            gui.destroyed.connect(_on_destroyed)
+
+        except Exception as e:
+            logging.info("Error al mostrar emergente: " + str(e))
 
     # leer la tarjeta
     def reportProgressTarjeta(self, result):

@@ -345,6 +345,8 @@ class HCEWorker(QThread):
                 id_monedero = int(partes[2])
                 no_transaccion = int(partes[3])
                 saldo_posterior = float(partes[4])
+                precio = float(partes[5])
+                tipo_transaccion = partes[6]
             except Exception:
                 return None
             if not vg.folio_asignacion or id_monedero <= 0 or no_transaccion <= 0:
@@ -356,6 +358,8 @@ class HCEWorker(QThread):
                 "id_monedero": id_monedero,
                 "no_transaccion": no_transaccion,
                 "saldo_posterior": saldo_posterior,
+                "precio": precio,
+                "tipo_transaccion": tipo_transaccion
             }
         except Exception as e:
             logger.error(f"Error al validar la trama CT: {e}")
@@ -442,9 +446,9 @@ class HCEWorker(QThread):
                         self.geocerca,
                         self.tipo_pasajero,
                         self.servicio,
-                        "f",
+                        datos["tipo_transaccion"],
                         datos["id_monedero"],
-                        datos["saldo_posterior"],
+                        datos["saldo_posterior"],   
                         self.precio
                     )
 

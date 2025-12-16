@@ -829,33 +829,35 @@ class LeerMinicomWorker(QObject):
                             raise ValueError("Folio aforo, folio viaje u hora vacíos.")
                         if tipo_pago not in ["q", "f"]:
                             raise ValueError(f"Tipo de pago inválido: {tipo_pago}")
-                        if transbordo not in ["t", "n"]:
-                            raise ValueError(f"Transbordo inválido: {transbordo}")
+                        # if transbordo not in ["t", "n", "NO"]:
+                        #     raise ValueError(f"Transbordo inválido: {transbordo}")
                         
-                        if revisado_celular == "NO":
-                            hora_bd = datetime.strptime(hora, "%H:%M:%S")
-                            hora_bd = hora_bd.replace(year=datetime.now().year, month=datetime.now().month, day=datetime.now().day)
+                        # if revisado_celular == "NO":
+                        #     hora_bd = datetime.datetime.strptime(hora, "%H:%M:%S")
+                        #     hora_bd = hora_bd.replace(year=datetime.datetime.now().year, month=datetime.datetime.now().month, day=datetime.datetime.now().day)
 
-                            # Hora actual
-                            hora_actual = datetime.now()
+                        #     # Hora actual
+                        #     hora_actual = datetime.datetime.now()
 
-                            # Calcular diferencia en minutos
-                            diferencia = hora_actual - hora_bd
+                        #     # Calcular diferencia en minutos
+                        #     diferencia = hora_actual - hora_bd
 
-                            # Verificar si han pasado más de 3 minutos
-                            if diferencia >= timedelta(minutes=3):
-                                print("Han pasado más de 3 minutos, ejecutar acción.")
-                                trama_6_base = f"6,{folio_aforo_unidad},{folio_viaje},{hora},{id_tarifa},{folio_geoloc},{id_tipo_pasajero},{transbordo},{tipo_pago},{id_monedero},{saldo},'BOL'"
-                            else:
-                                print("No han pasado 3 minutos todavía.")
-                                continue
+                        #     # Verificar si han pasado más de 3 minutos
+                        #     if diferencia >= timedelta(minutes=3):
+                        #         print("Han pasado más de 3 minutos, ejecutar acción.")
+                        #         trama_6_base = f"6,{folio_aforo_unidad},{folio_viaje},{hora},{id_tarifa},{folio_geoloc},{id_tipo_pasajero},{transbordo},{tipo_pago},{id_monedero},{saldo},'BOL'"
+                        #     else:
+                        #         print("No han pasado 3 minutos todavía.")
+                        #         continue
                             
-                        elif revisado_celular == "ERR":
-                            trama_6_base = f"6,{folio_aforo_unidad},{folio_viaje},{hora},{id_tarifa},{folio_geoloc},{id_tipo_pasajero},{transbordo},{tipo_pago},{id_monedero},{saldo},'ERR'"
+                        # elif revisado_celular == "ERR":
+                        #     trama_6_base = f"6,{folio_aforo_unidad},{folio_viaje},{hora},{id_tarifa},{folio_geoloc},{id_tipo_pasajero},{transbordo},{tipo_pago},{id_monedero},{saldo},'ERR'"
                             
-                        elif revisado_celular == "OK":
-                            trama_6_base = f"6,{folio_aforo_unidad},{folio_viaje},{hora},{id_tarifa},{folio_geoloc},{id_tipo_pasajero},{transbordo},{tipo_pago},{id_monedero},{saldo},'OK'"
-                            
+                        # elif revisado_celular == "OK":
+                            #trama_6_base = f"6,{folio_aforo_unidad},{folio_viaje},{hora},{id_tarifa},{folio_geoloc},{id_tipo_pasajero},{transbordo},{tipo_pago},{id_monedero},{saldo},'OK'"
+                        
+                        trama_6_base = f"6,{folio_aforo_unidad},{folio_viaje},{hora},{id_tarifa},{folio_geoloc},{id_tipo_pasajero},{transbordo},{tipo_pago},{id_monedero},{saldo}"
+
                         # Armar y enviar trama
                         checksum_6 = self.calcular_checksum(trama_6_base)
                         trama_6 = f"[{trama_6_base},{checksum_6}]"

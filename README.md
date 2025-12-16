@@ -5,6 +5,13 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 
 Linea cronológica:
 
+- v3.68:
+  - Ahora en la trama 6 digital ya no envia el estado al final de la trama (BOL,ERR,OK).
+  - Ahora la lectura de tarjetas y qr esta dividida en dos procesos diferentes en LeerTarjeta.py.
+  - Ahora los widgets en LeerTarjeta son mostrados desde el hilo principal para una mejor eficacia.
+  - Ahora se hace una verificacion de los campos obtenidos de la tarjeta con 'campo_invalido' para evitar 'IN' en csn, nombre, tipo y vigencia.
+  - Ahora se la trama de qr y nfc prepago trae como ultimo dato el tipo de transaccion (q, Q, f, F).
+  - Nueva matriz tarifaria con Id's 5,000.
 - v3.67:
   - Se implemento en el archivo de prepago la funcionalidad de que no se muestren los mensajes de error en la pantalla de prepago y que no se cierre la ventana a menos que se pague el boleto con efectivo o se cancele el boleto.
   - Nuevo diseño de la pantalla de prepago.

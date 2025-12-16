@@ -1,7 +1,7 @@
 ##########################################
 # Autor: Ernesto Lomar
 # Fecha de creación: 11/04/2022
-# Ultima modificación: 16/04/2022
+# Ultima modificación: 24/11/2025
 #
 # Script de la ventana chofer.
 #
@@ -23,6 +23,7 @@ from gpio_hub import GPIOHub, PINMAP
 # Librerías propias
 from servicio_pensiones import obtener_servicios_de_pension, obtener_pensiones
 import variables_globales as vg
+from variables_globales import VentanaActual
 from asignaciones_queries import (
     guardar_auto_asignacion,
     obtener_ultima_asignacion,
@@ -46,6 +47,7 @@ except Exception as e:
     print("No se pudo iniciar GPIOHub: " + str(e))
     logging.info(e)
 
+
 class VentanaChofer(QWidget):
 
     def __init__(self, close_signal, close_signal_pasaje):
@@ -56,6 +58,8 @@ class VentanaChofer(QWidget):
             # Configuración de la ventana chofer.
             self.settings = QSettings('/home/pi/Urban_Urbano/ventanas/settings.ini', QSettings.IniFormat)
             self.settings.setValue('ventana_actual', "chofer")
+            vg.ventana_actual = VentanaActual.CHOFER
+
             if len(vg.csn_chofer) != 0:
                 self.settings.setValue('csn_chofer', vg.csn_chofer)
             self.setWindowFlags(Qt.FramelessWindowHint)
