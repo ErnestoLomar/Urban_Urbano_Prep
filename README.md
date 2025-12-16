@@ -5,6 +5,8 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 
 Linea cronológica:
 
+- 3.69:
+  - Ahora se detecta la impresora china y Epson.
 - v3.68:
   - Ahora en la trama 6 digital ya no envia el estado al final de la trama (BOL,ERR,OK).
   - Ahora la lectura de tarjetas y qr esta dividida en dos procesos diferentes en LeerTarjeta.py.
