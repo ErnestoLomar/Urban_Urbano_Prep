@@ -827,7 +827,7 @@ class LeerMinicomWorker(QObject):
                         # Validaciones
                         if not folio_aforo_unidad or not folio_viaje or not hora:
                             raise ValueError("Folio aforo, folio viaje u hora vacíos.")
-                        if tipo_pago not in ["q", "f"]:
+                        if tipo_pago not in ["q", "f", "Q", "F"]:
                             raise ValueError(f"Tipo de pago inválido: {tipo_pago}")
                         # if transbordo not in ["t", "n", "NO"]:
                         #     raise ValueError(f"Transbordo inválido: {transbordo}")

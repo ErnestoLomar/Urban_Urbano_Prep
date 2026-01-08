@@ -5,6 +5,8 @@ Software de validador para camiones de transporte urbano para la empresa Urban d
 
 Linea cronológica:
 
+- v3.70:
+  - Se incluyo la Q y F en tipo de pago.
 - v3.69:
   - Se añadió el reseteo de las variables de corte, ya que visualmente salían mal.
 - v3.68:
