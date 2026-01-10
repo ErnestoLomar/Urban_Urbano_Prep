@@ -427,19 +427,26 @@ class VentanaPasaje(QWidget):
             try:
                 servicio = self.servicio_o_transbordo[0]
                 if servicio in ['SER', 'TRA']:
+
                     for tipo, datos, tipo_num, setting, precio in pasajeros:
-                        # efectivo
+
+                        # 1) Efectivo (lo que ya tenías)
                         if datos.total_pasajeros > 0:
                             imprimir_y_guardar(tipo, datos, tipo_num, setting, servicio)
-                        # HCE: uno por ventana
-                        total_hce = datos.total_pasajeros_tarjeta
-                        for _ in range(total_hce):
+
+                        # 2) HCE: uno por ventana, pero permitiendo cancelar SOLO el actual
+                        pendientes_hce = int(getattr(datos, "total_pasajeros_tarjeta", 0) or 0)
+                        cobrados_hce = 0
+
+                        while cobrados_hce < pendientes_hce:
+                            
+                            # Antes de abrir la ventana HCE:
                             vg.modo_nfcCard = False
-                            try:
-                                getattr(vg, "nfc_close_all", lambda: None)()
-                            finally:
-                                vg.nfc_closed_for_hce = True
-                            time.sleep(0.8)
+
+                            # Espera a que el hilo de tarjetas cierre realmente su sesión (máx 1.2s)
+                            vg.wait_nfc_closed_for_hce(timeout=1.2)
+
+                            time.sleep(0.10)  # pequeño margen
 
                             ventana = VentanaPrepago(
                                 tipo=tipo, tipo_num=tipo_num, setting=setting,
@@ -447,32 +454,52 @@ class VentanaPasaje(QWidget):
                                 geocerca=int(str(self.settings.value('geocerca')).split(",")[0]),
                                 servicio=("n" if servicio == "SER" else "t"),
                                 origen=self.origen, destino=self.destino,
-                                parent=overlay  # <—— clave: hijo del overlay
+                                parent=overlay
                             )
-                            # tamaño/posición opcional
                             ventana.setGeometry(0, 0, 800, 480)
 
                             r = ventana.mostrar_y_esperar()
                             time.sleep(1)
 
-                            if not r['hecho']:
-                                if r['pagado_efectivo']:
-                                    imprimir_y_guardar(tipo, datos, tipo_num, setting, servicio, 1)
-                                    continue
-                                break
+                            # ---- Caso: pagar con efectivo este boleto (ya lo manejabas)
+                            if r.get("pagado_efectivo"):
+                                imprimir_y_guardar(tipo, datos, tipo_num, setting, servicio, 1)
+                                cobrados_hce += 1
+                                continue
 
-                            # impresión tras HCE OK (igual que ya tenías)
+                            # ---- Caso: cancelar SOLO este boleto (NO cortar los demás)
+                            if not r.get("hecho", False):
+                                # Aquí “quitamos” 1 de los pendientes y seguimos con el resto.
+                                pendientes_hce -= 1
+
+                                # Si quieres que tu objeto datos refleje el cambio:
+                                try:
+                                    datos.total_pasajeros_tarjeta = pendientes_hce
+                                except Exception:
+                                    pass
+
+                                # (Opcional) Si total_pasajeros incluye también los de tarjeta, ajusta:
+                                try:
+                                    if hasattr(datos, "total_pasajeros"):
+                                        datos.total_pasajeros = max(0, int(datos.total_pasajeros) - 1)
+                                except Exception:
+                                    pass
+
+                                continue
+
+                            # ---- Caso: HCE OK, imprimir
                             if servicio == "SER":
                                 hecho = imprimir_boleto_normal_pasaje(
-                                    str(r['folio']), r['fecha'], r['hora'], str(self.Unidad),
+                                    str(r["folio"]), r["fecha"], r["hora"], str(self.Unidad),
                                     tipo, str(precio), str(self.ruta), str(self.tramo)
                                 )
                             else:
                                 hecho = imprimir_boleto_con_qr_pasaje(
-                                    str(r['folio']), r['fecha'], r['hora'], str(self.Unidad),
+                                    str(r["folio"]), r["fecha"], r["hora"], str(self.Unidad),
                                     tipo, str(precio), str(self.ruta), str(self.tramo),
                                     self.servicio_o_transbordo
                                 )
+
                             if not hecho:
                                 insertar_estadisticas_boletera(
                                     str(self.Unidad), fecha_estadistica, hora_estadistica,
@@ -480,6 +507,9 @@ class VentanaPasaje(QWidget):
                                 )
                                 self.ve = VentanaEmergente("IMPRESORA", "", 4.5)
                                 self.ve.show()
+
+                            cobrados_hce += 1
+
             finally:
                 if overlay:
                     overlay.close()

@@ -504,7 +504,6 @@ class LeerTarjetaWorker(QObject):
     try:
         finished = pyqtSignal()
         progress = pyqtSignal(str)
-        # título, mensaje, duración (s) -> lo consume la ventana principal
         mensaje = pyqtSignal(str, str, float)
     except Exception as e:
         print(e)
@@ -515,41 +514,34 @@ class LeerTarjetaWorker(QObject):
         self.ultimo_qr = ""
         self.hub = HUB
 
-        # Estado de control NFC
         self._nfc_fallos = 0
         self._nfc_ultimo_reset_ts = 0.0
 
-        # Estados de reposo explícitos (PINMAP ya los fija)
         try:
             self.hub.write("buzzer", False)
-            self.hub.write("nfc_rst", False)  # active_high=False -> HIGH físico en reposo
+            self.hub.write("nfc_rst", False)
         except Exception as e:
             print("\x1b[1;31;47m" + "No se pudo inicializar GPIO via hub: " + str(e) + '\033[0;m')
             logging.info(e)
 
-        # Librería NFC
         try:
             self.lib = ctypes.cdll.LoadLibrary('/home/pi/Urban_Urbano/qworkers/libernesto.so')
 
-            # funciones que devuelven punteros (char*) -> liberar con free_str
             self.lib.ev2IsPresent.restype = ctypes.c_void_p
             self.lib.tipoTiscEV2.restype = ctypes.c_void_p
             self.lib.obtenerVigencia.restype = ctypes.c_void_p
             self.lib.ev2PackInfo.argtypes = []
             self.lib.ev2PackInfo.restype = ctypes.c_void_p
 
-            # free_str(ptr)
             self.lib.free_str.argtypes = [ctypes.c_void_p]
             self.lib.free_str.restype = None
 
-            # cierre global
             self.lib.nfc_close_all.restype = None
 
         except Exception as e:
             print(e)
             logging.info(e)
 
-        # Settings y unidad
         try:
             self.settings = QSettings('/home/pi/Urban_Urbano/ventanas/settings.ini', QSettings.IniFormat)
             self.idUnidad = str(obtener_datos_aforo()[1])
@@ -557,41 +549,35 @@ class LeerTarjetaWorker(QObject):
             print(e)
             logging.info(e)
 
-        # Reset inicial de PN532 para arrancar en estado conocido
-        try:
-            self.pn532_hard_reset()
-        except Exception as e:
-            print("\x1b[1;31;47m" + "Reset inicial PN532 falló: " + str(e) + '\033[0;m')
-            logging.error(f"Reset inicial PN532 falló: {e}")
+        # Reset inicial (si no logra lock, lo difiere)
+        self.pn532_hard_reset()
 
-        # ---------- Lanzar hilo QR independiente ----------
+        # Hilo QR igual que antes
         self.qr_thread = QThread(self)
         self.qr_worker = QrReaderWorker(self.hub, self.idUnidad)
         self.qr_worker.moveToThread(self.qr_thread)
-
-        # Reenvía mensajes de QR hacia la ventana principal.
-        # Forzamos DirectConnection para no depender del event loop del hilo NFC.
         self.qr_worker.mostrar_mensaje.connect(self.reenviar_mensaje, Qt.DirectConnection)
-
         self.qr_thread.started.connect(self.qr_worker.start)
         self.qr_thread.start()
 
     @pyqtSlot(str, str, float)
     def reenviar_mensaje(self, titulo, cuerpo, segundos):
-        """Slot que recibe mensajes del lector QR y los re-emite hacia la ventana principal."""
         try:
-            print(f"LeerTarjetaWorker.reenviar_mensaje: {titulo} | {cuerpo} | {segundos}")
             self.mensaje.emit(titulo, cuerpo, segundos)
         except Exception as e:
             logging.info(e)
 
-    # -------------------- Utilitarios NFC --------------------
     def pn532_hard_reset(self):
-        """Reset físico del PN532; activo en LOW."""
+        """Reset físico PN532. Si está ocupado, pide reset diferido."""
+        # si otro dueño tiene el PN532, no fuerces: pide reset y sal
+        if not vg.pn532_acquire("RESET", timeout=0.25):
+            vg.pn532_request_reset()
+            return
+
         try:
             print("\x1b[1;32m" + "Hard reset PN532" + '\033[0;m')
 
-            # Cerrar la lib en un hilo con timeout corto para no bloquear
+            # cerrar sesión C (rápido) antes de reset
             def _try_close():
                 try:
                     if hasattr(self, "lib") and self.lib and hasattr(self.lib, "nfc_close_all"):
@@ -601,17 +587,18 @@ class LeerTarjetaWorker(QObject):
 
             t = threading.Thread(target=_try_close, daemon=True)
             t.start()
-            t.join(0.15)  # máx 150 ms
+            t.join(0.15)
 
-            # Pulso LOW físico usando el hub (active_high=False ⇒ True lógico = LOW físico)
-            self.hub.pulse("nfc_rst", 400)  # ≥100 ms en bajo
-            time.sleep(0.60)   # arranque del chip
+            self.hub.pulse("nfc_rst", 400)
+            time.sleep(0.60)
+
         except Exception as e:
             print("\x1b[1;31;47m" + "Error al resetear el lector NFC: " + str(e) + '\033[0;m')
             logging.error(f"Error al resetear el lector NFC: {e}")
+        finally:
+            vg.pn532_release()
 
     def _maybe_reset_nfc(self):
-        """Resetea PN532 si se acumulan fallos y respetando cooldown."""
         now = time.monotonic()
         if self._nfc_fallos >= _NFC_MAX_FALLOS_CONSECUTIVOS and (now - self._nfc_ultimo_reset_ts) >= _NFC_RESET_COOLDOWN_S:
             self.pn532_hard_reset()
@@ -627,73 +614,45 @@ class LeerTarjetaWorker(QObject):
             try:
                 self.lib.free_str(ptr)
             except Exception:
-                print("\x1b[1;31;47m" + "Error al liberar memoria asignada por la lib" + '\033[0;m')
                 logging.error("Error al liberar memoria asignada por la lib")
 
     def _campo_invalido(self, valor):
         v = (valor or "").strip().upper()
         return v in ("IN", "INVALID", "INVALIDO", "ERROR")
 
-    # -------------------- Utilitarios de tiempo --------------------
-    def restar_dos_horas(self, hora_1, hora_2):
-        try:
-            t1 = datetime.strptime(hora_1, '%H:%M:%S')
-            t2 = datetime.strptime(hora_2, '%H:%M:%S')
-            return t1 - t2
-        except Exception as e:
-            print("recorrido_mapa.py, linea 151: " + str(e))
-
-    def sumar_dos_horas(self, hora1, hora2):
-        try:
-            formato = "%H:%M:%S"
-            lista = hora2.split(":")
-            hora = int(lista[0])
-            minuto = int(lista[1])
-            segundo = int(lista[2])
-            h1 = datetime.strptime(hora1, formato)
-            dh = timedelta(hours=hora)
-            dm = timedelta(minutes=minuto)
-            ds = timedelta(seconds=segundo)
-            resultado1 = h1 + ds
-            resultado2 = resultado1 + dm
-            resultado = resultado2 + dh
-            resultado = resultado.strftime(formato)
-            return str(resultado)
-        except Exception as e:
-            print("recorrido_mapa.py, linea 151: " + str(e))
-
-    # -------------------- Loop principal: SOLO NFC --------------------
     def run(self):
         try:
-            poll_interval = 0.10  # 10 Hz
+            poll_interval = 0.10
             while True:
                 start = time.monotonic()
 
-                # Reset solicitado por UI externa
-                if getattr(vg, "pn532_reset_requested", False):
+                # reset solicitado globalmente
+                if vg.pn532_consume_reset_flag():
                     self.pn532_hard_reset()
-                    vg.pn532_reset_requested = False
                     self._nfc_fallos = 0
 
-                # si volvió a modo lector, limpia el latch de cierre
-                if vg.modo_nfcCard and getattr(vg, "nfc_closed_for_hce", False):
+                # si volvió a modo lector, limpia latch
+                if vg.modo_nfcCard and vg.nfc_closed_for_hce:
                     vg.nfc_closed_for_hce = False
 
-                # -------------------- NFC --------------------
                 try:
                     if vg.modo_nfcCard:
+                        # lectura CARD bajo lock
+                        if not vg.pn532_acquire("CARD", timeout=0.2):
+                            time.sleep(0.02)
+                            continue
+
                         try:
-                            # Una sola llamada: UID|TIPO|VIGENCIA(17)|NOMBRE(24)
                             pack = self._cstr(self.lib.ev2PackInfo())
                         except Exception as e:
-                            print("\x1b[1;31;47m" + "ev2PackInfo error: " + str(e) + '\033[0;m')
                             logging.info(f"ev2PackInfo error: {e}")
                             self._nfc_fallos += 1
                             self._maybe_reset_nfc()
                             time.sleep(0.02)
                             continue
+                        finally:
+                            vg.pn532_release()
 
-                        # Sin tag -> cadena vacía
                         if not pack:
                             time.sleep(0.02)
                             continue
@@ -712,37 +671,17 @@ class LeerTarjetaWorker(QObject):
                         vig = (vig or "").strip()
                         nombre = (nombre or "").strip()
 
-                        print("CSN: ", csn)
-                        print("Tipo: ", tipo)
-                        print("Vigencia: ", vig)
-                        print("Nombre: ", nombre)
-
-                        # Fallos explícitos
                         if any(self._campo_invalido(f) for f in (csn, tipo, vig, nombre)):
-                            logging.info("Lectura NFC incompleta (algún campo marcado inválido).")
                             self._nfc_fallos += 1
                             self._maybe_reset_nfc()
-                            time.sleep(0.12)
                             try:
                                 self.mensaje.emit("TARJETAINVALIDA", "", 2.0)
-                            except Exception as e:
-                                logging.info(e)
+                            except Exception:
+                                pass
                             self.hub.buzzer_blinks(5, on_ms=55, off_ms=55)
                             time.sleep(2)
                             continue
 
-                        # Backoff si UID no esperado
-                        if not csn:
-                            time.sleep(0.12)
-                            continue
-                        if len(csn) not in (8, 14, 20):
-                            time.sleep(0.12)
-                            continue
-                        if len(csn) != 14:
-                            time.sleep(0.12)
-                            continue
-
-                        # Limpia fallos ante actividad válida
                         if self._nfc_fallos:
                             self._nfc_fallos = 0
 
@@ -824,19 +763,22 @@ class LeerTarjetaWorker(QObject):
                             # no bloquea QR porque QR va en otro hilo
                             continue
                     else:
-                        # cerrar NFC una sola vez al ir a modo HCE u otro
-                        if not getattr(vg, "nfc_closed_for_hce", False):
-                            try:
-                                self.lib.nfc_close_all()
-                                vg.nfc_closed_for_hce = True
-                                time.sleep(0.1)
-                            except Exception as e:
-                                print("Error al cerrar NFC: ", e)
+                        # Entraste a HCE: cerrar sesión C UNA SOLA VEZ y marcar latch real
+                        if not vg.nfc_closed_for_hce:
+                            if vg.pn532_acquire("CARD_CLOSE", timeout=0.4):
+                                try:
+                                    try:
+                                        self.lib.nfc_close_all()
+                                    except Exception as e:
+                                        logging.info(f"nfc_close_all error: {e}")
+                                    vg.nfc_closed_for_hce = True
+                                finally:
+                                    vg.pn532_release()
+                                time.sleep(0.05)
 
                 except Exception as e:
                     logging.info(e)
 
-                # pace del loop NFC
                 elapsed = time.monotonic() - start
                 if elapsed < poll_interval:
                     time.sleep(poll_interval - elapsed)
@@ -845,7 +787,6 @@ class LeerTarjetaWorker(QObject):
             print(e)
             logging.info(e)
         finally:
-            # detener QR también
             try:
                 self.qr_worker.stop()
                 self.qr_thread.quit()
