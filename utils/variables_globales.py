@@ -4,7 +4,7 @@
 # Ultima modificación: 16/08/2022
 ##########################################
 
-version_del_software = "EL.v3.71"
+version_del_software = "EL.v3.72"
 banderaServicio=False
 longitud = 0
 latitud = 0

@@ -494,21 +494,21 @@ class Ventana(QWidget):
             print("Error al inicializar: " + str(e))
 
     def pn532_hard_reset(self, event):
-        """Hard reset del PN532 usando el HUB (nfc_rst activo en LOW)."""
         try:
-            print("Hard reset PN532 (botón)")
-            # Pulso lógico True (con active_high=False) = LOW físico
-            HUB.pulse("nfc_rst", 400)   # 400 ms en bajo
-            time.sleep(0.60)            # tiempo de arranque del chip
-            # (opcional) notifica al worker para re-prepararse
-            try:
-                import variables_globales as vg
-                vg.pn532_reset_requested = True
-            except Exception:
-                pass
+            import variables_globales as vg
+
+            # intenta reset inmediato solo si el PN532 está libre
+            if vg.pn532_acquire("UI_RESET", timeout=0.2):
+                try:
+                    # NO llames HUB.pulse aquí: no tienes acceso a nfc_close_all de la lib C
+                    # así que mejor igual pedirlo al worker:
+                    vg.pn532_request_reset()
+                finally:
+                    vg.pn532_release()
+            else:
+                vg.pn532_request_reset()
         except Exception as e:
-            print("Error al resetear el lector NFC: " + str(e))
-            logging.error(f"Error al resetear el lector NFC: {e}")
+            logging.error(f"Error reset PN532 (UI): {e}")
 
     # Método para manejar el evento click del label ok
     def handle_ok(self, event):

@@ -133,20 +133,20 @@ class Rutas(QWidget):
 
     def pn532_hard_reset(self, event):
         try:
-            print("Hard reset PN532 (botón)")
-            # Pulso lógico sobre nfc_rst (active_low en PINMAP)
-            if HUB:
-                HUB.pulse("nfc_rst", 400)  # ~0.40s en LOW y regresa a HIGH
-                time.sleep(0.60)
-            # Señal para que el worker se re-prepare
-            try:
-                import variables_globales as vg
-                vg.pn532_reset_requested = True
-            except Exception:
-                pass
+            import variables_globales as vg
+
+            # intenta reset inmediato solo si el PN532 está libre
+            if vg.pn532_acquire("UI_RESET", timeout=0.2):
+                try:
+                    # NO llames HUB.pulse aquí: no tienes acceso a nfc_close_all de la lib C
+                    # así que mejor igual pedirlo al worker:
+                    vg.pn532_request_reset()
+                finally:
+                    vg.pn532_release()
+            else:
+                vg.pn532_request_reset()
         except Exception as e:
-            print("Error al resetear el lector NFC: " + str(e))
-            logging.error(f"Error al resetear el lector NFC: {e}")
+            logging.error(f"Error reset PN532 (UI): {e}")
 
     def runDeteccionGeocercas(self):
         try:
