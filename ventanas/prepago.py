@@ -106,6 +106,43 @@ class HCEWorker(QThread):
 
         self.nfc = None
         self._have_lock = False
+        
+    def _reinit_post_reset(self) -> bool:
+        """
+        Después de un hard reset, vuelve a dejar PN532 listo (SAM + RF tune).
+        Si falla, recrea la instancia.
+        """
+        try:
+            if not self.nfc:
+                self.nfc = Pn532Blinka(cs_pin=board.CE0)
+
+            # begin() en tu adapter es no-op, pero lo dejamos por consistencia
+            self.nfc.begin()
+
+            # fuerza comunicación con chip
+            _ = self.nfc.getFirmwareVersion()
+
+            # SAMConfig también aplica RF tune en tu adapter
+            self.nfc.SAMConfig()
+            return True
+        except Exception as e:
+            logger.warning(f"Reinit post-reset falló: {e}. Re-creando PN532...")
+            try:
+                if self.nfc:
+                    self.nfc.deinit()
+            except Exception:
+                pass
+            self.nfc = None
+
+            try:
+                self.nfc = Pn532Blinka(cs_pin=board.CE0)
+                self.nfc.begin()
+                _ = self.nfc.getFirmwareVersion()
+                self.nfc.SAMConfig()
+                return True
+            except Exception as e2:
+                logger.error(f"No se pudo re-crear PN532: {e2}")
+                return False
 
     def _hard_reset_hub(self):
         if not HUB:
@@ -327,6 +364,12 @@ class HCEWorker(QThread):
                     if self.contador_sin_dispositivo >= 15:
                         self.pago_fallido.emit("Se va a resetear el lector")
                         self._hard_reset_hub()
+
+                        # CLAVE: volver a dejar PN532 listo tras reset
+                        if not self._reinit_post_reset():
+                            self.pago_fallido.emit("No se pudo re-inicializar el PN532")
+                            time.sleep(0.4)
+
                         self.contador_sin_dispositivo = 0
                         continue
 
